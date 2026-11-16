@@ -25,7 +25,7 @@ def main(page: ft.Page):
                 ft.Container(height=35),
                 ft.Text("تحميل فيديو", size=23, weight="bold"),
                 link,
-                ft.ElevatedButton(
+                ft.Button(
                     "تحميل الفيديو",
                     icon=ft.Icons.DOWNLOAD,
                     width=350,
