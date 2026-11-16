@@ -43,8 +43,9 @@ def main(page: ft.Page):
 
 ft.run(main)
 
-python src/main.py
 
 
 
-flet run --web --host 0.0.0.0 --port 8550 src/main.py
+
+
+
