@@ -1,20 +1,27 @@
 name: Build Android APK
+
 on: [push, workflow_dispatch]
+
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
       - uses: subosito/flutter-action@v2
         with:
-          channel: 'stable'
+          flutter-version: '3.47.9'
+
       - name: Install Flet and Build APK
         run: |
-          pip install flet
-          flet build apk --project "VideoDownloader" --description "Social Media Downloader"
+          pip install flet==1.1.2
+          flet build apk --yes --project "VideoDownloader" --description "Social Media Downloader"
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
