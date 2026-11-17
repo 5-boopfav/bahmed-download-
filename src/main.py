@@ -27,7 +27,6 @@ class DownloadState:
 def fmt_size(value):
     if value is None:
         return "--"
-
     value = float(value)
 
     for unit in ("B", "KB", "MB", "GB", "TB"):
@@ -46,7 +45,6 @@ def main(page: ft.Page):
     page.rtl = True
 
     folder = Path.home() / "Downloads" / "BAHMED"
-
     try:
         folder.mkdir(parents=True, exist_ok=True)
     except OSError:
@@ -294,7 +292,6 @@ def main(page: ft.Page):
 
         update_progress(0)
         details.value = "يتم تجهيز الاتصال..."
-
         start.disabled = True
         pause.disabled = False
         resume.disabled = True
@@ -542,38 +539,39 @@ def main(page: ft.Page):
 
         page.update()
 
+    # شريط التنقل السفلي الجديد
     def nav(label, icon):
         return ft.Button(
-            content=ft.Row(
+            content=ft.Column(
                 [
-                    ft.Icon(icon, color=CYAN),
-                    txt(label, 13),
+                    ft.Icon(icon, color=CYAN, size=21),
+                    txt(label, 10, WHITE),
                 ],
-                spacing=8,
+                spacing=3,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             ),
             on_click=lambda e: show_section(label),
             style=ft.ButtonStyle(
                 bgcolor=PANEL2,
                 color=WHITE,
-                padding=11,
+                padding=8,
                 shape=ft.RoundedRectangleBorder(radius=10),
             ),
+            expand=True,
         )
 
-    sidebar = card(
-        ft.Column(
+    bottom_nav = card(
+        ft.Row(
             [
-                txt("s♡s", 25, GOLD, True),
-                txt("BAHMED", 17, WHITE, True),
-                txt("مساحة التحميل", 11, MUTED),
                 nav("الرئيسية", ft.Icons.HOME_ROUNDED),
                 nav("التنزيلات", ft.Icons.DOWNLOAD_ROUNDED),
                 nav("الملفات", ft.Icons.FOLDER_ROUNDED),
                 nav("الإعدادات", ft.Icons.SETTINGS_ROUNDED),
-                txt("تحميل أسهل وأسرع", 11, MUTED),
             ],
-            spacing=10,
-        )
+            spacing=7,
+            alignment=ft.MainAxisAlignment.SPACE_AROUND,
+        ),
+        padding=8,
     )
 
     footer = ft.Column(
@@ -598,23 +596,11 @@ def main(page: ft.Page):
         ft.Column(
             [
                 header,
-                ft.ResponsiveRow(
-                    [
-                        ft.Container(
-                            content=sidebar,
-                            col={"xs": 12, "md": 3},
-                        ),
-                        ft.Container(
-                            content=content,
-                            col={"xs": 12, "md": 9},
-                        ),
-                    ],
-                    spacing=12,
-                    run_spacing=12,
-                ),
+                content,
+                bottom_nav,
                 footer,
             ],
-            spacing=14,
+            spacing=12,
             expand=True,
             scroll=ft.ScrollMode.AUTO,
         )
