@@ -34,7 +34,9 @@ def format_size(value):
 
 
 def download_video(url, folder, state, speed_limit, callback):
+
     def progress_hook(data):
+
         while not state.paused.wait(timeout=0.3):
             if state.cancelled.is_set():
                 raise DownloadCancelled()
@@ -46,8 +48,10 @@ def download_video(url, folder, state, speed_limit, callback):
             callback({
                 "percent": data.get("_percent_str", "0%"),
                 "downloaded": data.get("downloaded_bytes", 0),
-                "total": data.get("total_bytes")
-                         or data.get("total_bytes_estimate"),
+                "total": (
+                    data.get("total_bytes")
+                    or data.get("total_bytes_estimate")
+                ),
                 "speed": data.get("speed"),
                 "eta": data.get("eta"),
             })
@@ -55,7 +59,8 @@ def download_video(url, folder, state, speed_limit, callback):
     options = {
         "format": "best[ext=mp4]/best",
         "outtmpl": os.path.join(
-            folder, "%(title).60s [%(id)s].%(ext)s"
+            folder,
+            "%(title).60s [%(id)s].%(ext)s"
         ),
         "noplaylist": True,
         "quiet": True,
@@ -75,7 +80,6 @@ def download_video(url, folder, state, speed_limit, callback):
 
 async def main(page: ft.Page):
 
-    # إعدادات النافذة
     page.title = "BAHMED DOWNLOADER"
     page.theme_mode = ft.ThemeMode.LIGHT
     page.bgcolor = "#F3F6FC"
@@ -85,17 +89,14 @@ async def main(page: ft.Page):
     state = None
     downloading = False
 
-    # منتقي حفظ الملفات
-    file_picker = ft.FilePicker()
-    page.overlay.append(file_picker)
-
-    # الألوان
     BLUE = "#526FFF"
     DARK = "#17243B"
     MUTED = "#8491A8"
     WHITE = "#FFFFFF"
 
-    # حقل الرابط
+    file_picker = ft.FilePicker()
+    page.overlay.append(file_picker)
+
     link = ft.TextField(
         hint_text="الصق رابط الفيديو هنا...",
         prefix_icon=ft.Icons.LINK,
@@ -108,14 +109,13 @@ async def main(page: ft.Page):
 
     speed_limit = ft.TextField(
         label="حد السرعة KB/s",
-        hint_text="بدون حد",
-        width=180,
+        hint_text="اتركه فارغًا للسرعة غير المحدودة",
+        width=220,
         keyboard_type=ft.KeyboardType.NUMBER,
         border_radius=12,
         bgcolor=WHITE,
     )
 
-    # معلومات التنزيل
     progress = ft.ProgressBar(
         value=0,
         color=BLUE,
@@ -131,9 +131,20 @@ async def main(page: ft.Page):
         color=BLUE,
     )
 
-    downloaded_text = ft.Text("الحجم: --", color=MUTED)
-    speed_text = ft.Text("السرعة: --", color=MUTED)
-    eta_text = ft.Text("الوقت المتبقي: --", color=MUTED)
+    downloaded_text = ft.Text(
+        "الحجم: --",
+        color=MUTED,
+    )
+
+    speed_text = ft.Text(
+        "السرعة: --",
+        color=MUTED,
+    )
+
+    eta_text = ft.Text(
+        "الوقت المتبقي: --",
+        color=MUTED,
+    )
 
     status = ft.Text(
         "جاهز لاستقبال رابط جديد",
@@ -148,6 +159,7 @@ async def main(page: ft.Page):
         page.update()
 
     async def show_progress(data):
+
         raw = data["percent"].replace("%", "").strip()
 
         try:
@@ -164,12 +176,14 @@ async def main(page: ft.Page):
         )
 
         speed = data["speed"]
+
         speed_text.value = (
             f"السرعة: {format_size(speed)}/ث"
             if speed else "السرعة: --"
         )
 
         eta = data["eta"]
+
         eta_text.value = (
             f"الوقت المتبقي: {int(eta)} ثانية"
             if eta is not None else "الوقت المتبقي: --"
@@ -180,25 +194,27 @@ async def main(page: ft.Page):
     def progress_callback(data):
         page.run_task(show_progress, data)
 
-    # أزرار التحكم
     async def pause_download(e):
+
         if state and downloading:
             state.paused.clear()
             update_status("تم إيقاف التنزيل مؤقتًا")
 
     async def resume_download(e):
+
         if state and downloading:
             state.paused.set()
             update_status("تم استئناف التنزيل")
 
     async def cancel_download(e):
+
         if state and downloading:
             state.cancelled.set()
             state.paused.set()
             update_status("جارٍ إلغاء التنزيل...")
 
-    # بدء التنزيل
     async def start_download(e):
+
         nonlocal state, downloading
 
         if downloading:
@@ -207,17 +223,23 @@ async def main(page: ft.Page):
         url = (link.value or "").strip()
         parsed = urlparse(url)
 
-        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        if (
+            parsed.scheme not in ("http", "https")
+            or not parsed.hostname
+        ):
             update_status("يرجى إدخال رابط صحيح")
             return
 
         limit = None
 
         if (speed_limit.value or "").strip():
+
             try:
                 limit = int(speed_limit.value) * 1024
+
                 if limit <= 0:
                     raise ValueError()
+
             except ValueError:
                 update_status("أدخل حد سرعة صحيحًا")
                 return
@@ -232,9 +254,11 @@ async def main(page: ft.Page):
 
         progress.value = 0
         percent.value = "0%"
-        page.update()
+
+        update_status("جارٍ بدء التنزيل...")
 
         try:
+
             folder = tempfile.mkdtemp(prefix="bahmed_")
 
             filename = await asyncio.to_thread(
@@ -254,6 +278,7 @@ async def main(page: ft.Page):
 
             progress.value = 1
             percent.value = "100%"
+
             update_status("اكتمل التنزيل، اختر مكان الحفظ")
 
             with open(filename, "rb") as file:
@@ -265,6 +290,7 @@ async def main(page: ft.Page):
             )
 
             if saved:
+
                 update_status("تم حفظ الملف بنجاح")
 
                 history.controls.insert(
@@ -288,24 +314,31 @@ async def main(page: ft.Page):
                         border_radius=12,
                     ),
                 )
+
             else:
                 update_status("تم إلغاء اختيار مكان الحفظ")
 
         except DownloadCancelled:
+
             update_status("تم إلغاء التنزيل")
 
         except Exception as error:
-            update_status("تعذر التنزيل: " + str(error)[:150])
+
+            update_status(
+                "تعذر التنزيل: " + str(error)[:150]
+            )
 
         finally:
+
             downloading = False
+
             download_button.disabled = False
             pause_button.disabled = True
             resume_button.disabled = True
             cancel_button.disabled = True
+
             page.update()
 
-    # إنشاء الأزرار
     download_button = ft.Button(
         content="بدء التنزيل",
         icon=ft.Icons.DOWNLOAD,
@@ -339,18 +372,18 @@ async def main(page: ft.Page):
         on_click=cancel_download,
     )
 
-    # بطاقة مموحدة
-     def card(content, col=None):
-    return ft.Container(
-        content=content,
-        bgcolor=WHITE,
-        padding=20,
-        border_radius=18,
-        border=ft.Border.all(1, "#E9EEF6"),
-        col=col,
-     )   
+    # إصلاح الخطأ: الدالة تستقبل col الآن
+    def card(content, col=None):
 
-    # القائمة الجانبية
+        return ft.Container(
+            content=content,
+            bgcolor=WHITE,
+            padding=20,
+            border_radius=18,
+            border=ft.Border.all(1, "#E9EEF6"),
+            col=col,
+        )
+
     sidebar = card(
         ft.Column(
             [
@@ -366,26 +399,45 @@ async def main(page: ft.Page):
                     color=MUTED,
                 ),
                 ft.Divider(color="#E9EEF6"),
-                ft.Text("القائمة الرئيسية", weight="bold", color=DARK),
+                ft.Text(
+                    "القائمة الرئيسية",
+                    weight="bold",
+                    color=DARK,
+                ),
                 ft.ListTile(
-                    leading=ft.Icon(ft.Icons.DOWNLOAD, color=BLUE),
+                    leading=ft.Icon(
+                        ft.Icons.DOWNLOAD,
+                        color=BLUE,
+                    ),
                     title=ft.Text("كل التنزيلات"),
                 ),
                 ft.ListTile(
-                    leading=ft.Icon(ft.Icons.DOWNLOADING, color=BLUE),
+                    leading=ft.Icon(
+                        ft.Icons.DOWNLOADING,
+                        color=BLUE,
+                    ),
                     title=ft.Text("قيد التنزيل"),
                 ),
                 ft.ListTile(
-                    leading=ft.Icon(ft.Icons.CHECK_CIRCLE, color=BLUE),
+                    leading=ft.Icon(
+                        ft.Icons.CHECK_CIRCLE,
+                        color=BLUE,
+                    ),
                     title=ft.Text("المكتملة"),
                 ),
                 ft.ListTile(
-                    leading=ft.Icon(ft.Icons.PAUSE_CIRCLE, color=BLUE),
+                    leading=ft.Icon(
+                        ft.Icons.PAUSE_CIRCLE,
+                        color=BLUE,
+                    ),
                     title=ft.Text("المتوقفة"),
                 ),
                 ft.Divider(color="#E9EEF6"),
                 ft.ListTile(
-                    leading=ft.Icon(ft.Icons.SETTINGS, color=BLUE),
+                    leading=ft.Icon(
+                        ft.Icons.SETTINGS,
+                        color=BLUE,
+                    ),
                     title=ft.Text("الإعدادات"),
                 ),
             ],
@@ -394,7 +446,6 @@ async def main(page: ft.Page):
         col={"xs": 12, "md": 3},
     )
 
-    # منطقة إضافة الرابط
     add_card = card(
         ft.Column(
             [
@@ -420,7 +471,6 @@ async def main(page: ft.Page):
         )
     )
 
-    # منطقة التقدم
     progress_card = card(
         ft.Column(
             [
@@ -439,19 +489,28 @@ async def main(page: ft.Page):
                 progress,
                 ft.Row(
                     [
-                        ft.Icon(ft.Icons.FOLDER_OPEN, color=BLUE),
+                        ft.Icon(
+                            ft.Icons.FOLDER_OPEN,
+                            color=BLUE,
+                        ),
                         downloaded_text,
                     ],
                 ),
                 ft.Row(
                     [
-                        ft.Icon(ft.Icons.SPEED, color=BLUE),
+                        ft.Icon(
+                            ft.Icons.SPEED,
+                            color=BLUE,
+                        ),
                         speed_text,
                     ],
                 ),
                 ft.Row(
                     [
-                        ft.Icon(ft.Icons.TIMER, color=BLUE),
+                        ft.Icon(
+                            ft.Icons.TIMER,
+                            color=BLUE,
+                        ),
                         eta_text,
                     ],
                 ),
@@ -470,7 +529,6 @@ async def main(page: ft.Page):
         )
     )
 
-    # قائمة الملفات
     history_card = card(
         ft.Column(
             [
@@ -495,7 +553,6 @@ async def main(page: ft.Page):
         )
     )
 
-    # رأس التطبيق
     header = ft.Row(
         [
             ft.Column(
@@ -528,7 +585,6 @@ async def main(page: ft.Page):
         ],
     )
 
-    # تخطيط متجاوب
     main_area = ft.Column(
         [
             header,
