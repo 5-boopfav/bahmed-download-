@@ -7,13 +7,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - uses: subosito/flutter-action@v2
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.47.9'
 
@@ -25,13 +28,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev mesa-utils
 
-      - name: Install Flet and Build APK
+      - name: Install Flet
         run: |
+          python -m pip install --upgrade pip
           pip install flet==1.1.2
-          flet build apk --yes --project "VideoDownloader" --description "Social Media Downloader"
+
+      - name: Build Android APK with detailed logs
+        run: |
+          flet build apk --yes --verbose --project "VideoDownloader" --description "Social Media Downloader"
 
       - name: Upload APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: app-release-apk
           path: build/apk/*.apk
+          if-no-files-found: error
