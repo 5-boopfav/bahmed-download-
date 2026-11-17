@@ -339,15 +339,16 @@ async def main(page: ft.Page):
         on_click=cancel_download,
     )
 
-    # بطاقة موحدة
-    def card(content):
-        return ft.Container(
-            content=content,
-            bgcolor=WHITE,
-            padding=20,
-            border_radius=18,
-            border=ft.Border.all(1, "#E9EEF6"),
-        )
+    # بطاقة مموحدة
+     def card(content, col=None):
+    return ft.Container(
+        content=content,
+        bgcolor=WHITE,
+        padding=20,
+        border_radius=18,
+        border=ft.Border.all(1, "#E9EEF6"),
+        col=col,
+     )   
 
     # القائمة الجانبية
     sidebar = card(
