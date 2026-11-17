@@ -1,4 +1,3 @@
-import os
 import threading
 from pathlib import Path
 
@@ -22,15 +21,19 @@ class DownloadState:
 def format_size(value):
     if value is None:
         return "--"
+
     value = float(value)
+
     for unit in ("B", "KB", "MB", "GB", "TB"):
         if value < 1024:
             return f"{value:.1f} {unit}"
         value /= 1024
+
     return f"{value:.1f} PB"
 
 
 def main(page: ft.Page):
+
     page.title = "BAHMED DOWNLOADER"
     page.bgcolor = BG
     page.rtl = True
@@ -41,7 +44,6 @@ def main(page: ft.Page):
         label="رابط الفيديو أو الملف",
         hint_text="الصق الرابط هنا",
         text_align=ft.TextAlign.RIGHT,
-        border_radius=12,
         expand=True,
     )
 
@@ -49,8 +51,14 @@ def main(page: ft.Page):
         label="نوع الملف",
         value="video",
         options=[
-            ft.dropdown.Option("video", "فيديو MP4"),
-            ft.dropdown.Option("audio", "صوت بأفضل جودة متاحة"),
+            ft.DropdownOption(
+                key="video",
+                text="فيديو MP4",
+            ),
+            ft.DropdownOption(
+                key="audio",
+                text="صوت",
+            ),
         ],
         expand=True,
     )
@@ -59,49 +67,83 @@ def main(page: ft.Page):
         label="جودة الفيديو",
         value="720",
         options=[
-            ft.dropdown.Option("360", "360p"),
-            ft.dropdown.Option("480", "480p"),
-            ft.dropdown.Option("720", "720p"),
-            ft.dropdown.Option("1080", "1080p"),
+            ft.DropdownOption("360", "360p"),
+            ft.DropdownOption("480", "480p"),
+            ft.DropdownOption("720", "720p"),
+            ft.DropdownOption("1080", "1080p"),
         ],
         expand=True,
     )
 
-    status = ft.Text("جاهز للتنزيل", color=MUTED)
+    status = ft.Text(
+        "جاهز للتنزيل",
+        color=MUTED,
+    )
+
     progress = ft.ProgressBar(
         value=0,
         color=BLUE,
         bgcolor="#DCE6FA",
     )
-    details = ft.Text("", color=MUTED, size=12)
 
-    start_button = ft.ElevatedButton(
-        "بدء التنزيل",
+    details = ft.Text(
+        "",
+        color=MUTED,
+        size=12,
+    )
+
+    start_button = ft.Button(
+        content="بدء التنزيل",
         icon=ft.Icons.DOWNLOAD,
     )
-    pause_button = ft.OutlinedButton("إيقاف مؤقت", disabled=True)
-    resume_button = ft.OutlinedButton("استئناف", disabled=True)
-    cancel_button = ft.TextButton("إلغاء", disabled=True)
+
+    pause_button = ft.Button(
+        content="إيقاف مؤقت",
+        disabled=True,
+    )
+
+    resume_button = ft.Button(
+        content="استئناف",
+        disabled=True,
+    )
+
+    cancel_button = ft.Button(
+        content="إلغاء",
+        disabled=True,
+    )
 
     state_holder = {"state": None}
 
-    download_folder = Path.home() / "Downloads" / "BAHMED"
+    download_folder = (
+        Path.home() / "Downloads" / "BAHMED"
+    )
 
     try:
-        download_folder.mkdir(parents=True, exist_ok=True)
+        download_folder.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
     except OSError:
-        download_folder = Path.cwd() / "BAHMED_DOWNLOADS"
-        download_folder.mkdir(parents=True, exist_ok=True)
+        download_folder = (
+            Path.cwd() / "BAHMED_DOWNLOADS"
+        )
+        download_folder.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
 
     def set_status(message):
         status.value = message
         page.update()
 
     def progress_hook(data):
+
         state = state_holder["state"]
 
         if state is not None:
+
             while not state.paused.wait(timeout=0.25):
+
                 if state.cancelled.is_set():
                     raise yt_dlp.utils.DownloadError(
                         "تم إلغاء التنزيل"
@@ -113,17 +155,30 @@ def main(page: ft.Page):
                 )
 
         if data.get("status") == "downloading":
-            downloaded = data.get("downloaded_bytes", 0)
+
+            downloaded = data.get(
+                "downloaded_bytes", 0
+            )
+
             total = (
                 data.get("total_bytes")
                 or data.get("total_bytes_estimate")
             )
 
-            percent = downloaded / total if total else 0
+            percent = (
+                downloaded / total if total else 0
+            )
 
-            progress.value = max(0, min(percent, 1))
+            progress.value = max(
+                0,
+                min(percent, 1),
+            )
 
-            speed = format_size(data.get("speed")) + "/s"
+            speed = (
+                format_size(data.get("speed"))
+                + "/s"
+            )
+
             eta = data.get("eta")
 
             details.value = (
@@ -138,26 +193,45 @@ def main(page: ft.Page):
             page.update()
 
         elif data.get("status") == "finished":
+
             progress.value = 1
-            details.value = "اكتمل تنزيل البيانات، جارٍ تجهيز الملف..."
+
+            details.value = (
+                "اكتمل تنزيل البيانات، "
+                "جارٍ تجهيز الملف..."
+            )
+
             page.update()
 
-    def worker(url, media_kind, selected_quality, state):
+    def worker(
+        url,
+        media_kind,
+        selected_quality,
+        state,
+    ):
+
         try:
+
             if media_kind == "audio":
+
                 fmt = "bestaudio/best"
+
             else:
+
                 fmt = (
-                    f"best[height<={selected_quality}][ext=mp4]/"
+                    f"best[height<={selected_quality}]"
+                    f"[ext=mp4]/"
                     f"best[height<={selected_quality}]/best"
                 )
 
             options = {
                 "format": fmt,
+
                 "outtmpl": str(
                     download_folder
                     / "%(title).70s [%(id)s].%(ext)s"
                 ),
+
                 "noplaylist": True,
                 "quiet": True,
                 "no_warnings": True,
@@ -171,37 +245,57 @@ def main(page: ft.Page):
                 downloader.download([url])
 
             if state.cancelled.is_set():
+
                 set_status("تم إلغاء التنزيل.")
+
             else:
+
                 set_status(
-                    f"اكتمل التنزيل. مجلد الحفظ: {download_folder}"
+                    "اكتمل التنزيل. مجلد الحفظ: "
+                    + str(download_folder)
                 )
+
                 details.value = (
-                    "يمكنك فتح مجلد BAHMED داخل Downloads."
+                    "تم تنزيل الملف بنجاح."
                 )
+
                 page.update()
 
         except Exception as error:
-            set_status(f"تعذر التنزيل: {error}")
+
+            set_status(
+                f"تعذر التنزيل: {error}"
+            )
 
         finally:
+
             start_button.disabled = False
             pause_button.disabled = True
             resume_button.disabled = True
             cancel_button.disabled = True
+
             state_holder["state"] = None
+
             page.update()
 
-    def start_download(_):
-        url = (url_field.value or "").strip()
+    def start_download(e):
 
-        if not url.startswith(("http://", "https://")):
+        url = (
+            url_field.value or ""
+        ).strip()
+
+        if not url.startswith(
+            ("http://", "https://")
+        ):
+
             set_status(
                 "أدخل رابطًا صحيحًا يبدأ بـ http أو https."
             )
+
             return
 
         state = DownloadState()
+
         state_holder["state"] = state
 
         progress.value = 0
@@ -222,125 +316,153 @@ def main(page: ft.Page):
             state,
         )
 
-    def pause_download(_):
+    def pause_download(e):
+
         state = state_holder["state"]
 
         if state:
+
             state.paused.clear()
+
             pause_button.disabled = True
             resume_button.disabled = False
-            set_status("التنزيل متوقف مؤقتًا.")
 
-    def resume_download(_):
+            set_status(
+                "التنزيل متوقف مؤقتًا."
+            )
+
+    def resume_download(e):
+
         state = state_holder["state"]
 
         if state:
+
             state.paused.set()
+
             pause_button.disabled = False
             resume_button.disabled = True
-            set_status("تم استئناف التنزيل.")
 
-    def cancel_download(_):
+            set_status(
+                "تم استئناف التنزيل."
+            )
+
+    def cancel_download(e):
+
         state = state_holder["state"]
 
         if state:
+
             state.cancelled.set()
             state.paused.set()
-            set_status("جارٍ إلغاء التنزيل...")
+
+            set_status(
+                "جارٍ إلغاء التنزيل..."
+            )
 
     start_button.on_click = start_download
     pause_button.on_click = pause_download
     resume_button.on_click = resume_download
     cancel_button.on_click = cancel_download
 
-    page.add(
-        ft.Column(
-            [
-                ft.Container(
-                    content=ft.Column(
-                        [
-                            ft.Text(
-                                "بحمد",
-                                size=38,
-                                weight=ft.FontWeight.BOLD,
-                                color=BLUE,
-                                text_align=ft.TextAlign.CENTER,
-                            ),
-                            ft.Text(
-                                "BAHMED DOWNLOADER",
-                                size=13,
-                                weight=ft.FontWeight.BOLD,
-                                color=INK,
-                                text_align=ft.TextAlign.CENTER,
-                            ),
-                        ],
-                        horizontal_alignment=(
-                            ft.CrossAxisAlignment.CENTER
-                        ),
-                        spacing=2,
-                    ),
-                    padding=ft.padding.only(
-                        top=18,
-                        bottom=18,
-                    ),
-                ),
-
-                ft.Container(
-                    content=ft.Column(
-                        [
-                            ft.Text(
-                                "تنزيل جديد",
-                                size=20,
-                                weight=ft.FontWeight.BOLD,
-                                color=INK,
-                            ),
-                            url_field,
-                            ft.Row(
-                                [kind, quality],
-                                spacing=10,
-                            ),
-                            start_button,
-                        ],
-                        spacing=14,
-                    ),
-                    bgcolor="white",
-                    border_radius=18,
-                    padding=16,
-                ),
-
-                ft.Container(
-                    content=ft.Column(
-                        [
-                            ft.Text(
-                                "حالة التنزيل",
-                                size=17,
-                                weight=ft.FontWeight.BOLD,
-                                color=INK,
-                            ),
-                            status,
-                            progress,
-                            details,
-                            ft.Row(
-                                [
-                                    pause_button,
-                                    resume_button,
-                                    cancel_button,
-                                ],
-                                alignment=(
-                                    ft.MainAxisAlignment.SPACE_BETWEEN
-                                ),
-                                wrap=True,
-                            ),
-                        ],
-                        spacing=12,
-                    ),
-                    bgcolor="white",
-                    border_radius=18,
-                    padding=16,
+    header = ft.Container(
+        content=ft.Column(
+            controls=[
+                ft.Text(
+                    "بحمد",
+                    size=38,
+                    weight=ft.FontWeight.BOLD,
+                    color=BLUE,
+                    text_align=ft.TextAlign.CENTER,
                 ),
 
                 ft.Text(
-                    "نزّل فقط الملفات التي تملكها أو لديك إذن بتنزيلها.",
+                    "BAHMED DOWNLOADER",
+                    size=13,
+                    weight=ft.FontWeight.BOLD,
+                    color=INK,
+                    text_align=ft.TextAlign.CENTER,
+                ),
+            ],
+            horizontal_alignment=(
+                ft.CrossAxisAlignment.CENTER
+            ),
+            spacing=2,
+        ),
+        padding=20,
+    )
+
+    download_card = ft.Container(
+        content=ft.Column(
+            controls=[
+                ft.Text(
+                    "تنزيل جديد",
+                    size=20,
+                    weight=ft.FontWeight.BOLD,
+                    color=INK,
+                ),
+
+                url_field,
+
+                ft.Row(
+                    controls=[
+                        kind,
+                        quality,
+                    ],
+                    spacing=10,
+                ),
+
+                start_button,
+            ],
+            spacing=14,
+        ),
+        bgcolor="white",
+        border_radius=18,
+        padding=16,
+    )
+
+    status_card = ft.Container(
+        content=ft.Column(
+            controls=[
+                ft.Text(
+                    "حالة التنزيل",
+                    size=17,
+                    weight=ft.FontWeight.BOLD,
+                    color=INK,
+                ),
+
+                status,
+                progress,
+                details,
+
+                ft.Row(
+                    controls=[
+                        pause_button,
+                        resume_button,
+                        cancel_button,
+                    ],
+                    alignment=(
+                        ft.MainAxisAlignment.SPACE_BETWEEN
+                    ),
+                    wrap=True,
+                ),
+            ],
+            spacing=12,
+        ),
+        bgcolor="white",
+        border_radius=18,
+        padding=16,
+    )
+
+    page.add(
+        ft.Column(
+            controls=[
+                header,
+                download_card,
+                status_card,
+
+                ft.Text(
+                    "نزّل فقط الملفات التي تملكها "
+                    "أو لديك إذن بتنزيلها.",
                     size=11,
                     color=MUTED,
                     text_align=ft.TextAlign.CENTER,
