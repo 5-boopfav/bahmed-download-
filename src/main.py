@@ -27,6 +27,7 @@ class DownloadState:
 def fmt_size(value):
     if value is None:
         return "--"
+
     value = float(value)
 
     for unit in ("B", "KB", "MB", "GB", "TB"):
@@ -41,10 +42,11 @@ def main(page: ft.Page):
     page.title = "BAHMED DOWNLOADER"
     page.bgcolor = BG
     page.theme_mode = ft.ThemeMode.DARK
-    page.padding = 14
+    page.padding = 6
     page.rtl = True
 
     folder = Path.home() / "Downloads" / "BAHMED"
+
     try:
         folder.mkdir(parents=True, exist_ok=True)
     except OSError:
@@ -53,6 +55,7 @@ def main(page: ft.Page):
 
     active = {"state": None}
     history = []
+    current_section = {"name": "الرئيسية"}
 
     def txt(value, size=14, color=WHITE, bold=False):
         return ft.Text(
@@ -62,77 +65,14 @@ def main(page: ft.Page):
             weight=ft.FontWeight.BOLD if bold else ft.FontWeight.NORMAL,
         )
 
-    def card(content, padding=17):
+    def card(content, padding=10):
         return ft.Container(
             content=content,
             bgcolor=PANEL,
             border=ft.Border.all(1, BORDER),
-            border_radius=18,
+            border_radius=15,
             padding=padding,
         )
-
-    url = ft.TextField(
-        label="رابط الفيديو أو الملف",
-        hint_text="الصق الرابط هنا...",
-        text_align=ft.TextAlign.RIGHT,
-        expand=True,
-        bgcolor=PANEL2,
-        border_color=BORDER,
-        focused_border_color=CYAN,
-        cursor_color=CYAN,
-    )
-
-    kind = ft.Dropdown(
-        label="نوع الملف",
-        value="video",
-        expand=True,
-        options=[
-            ft.DropdownOption(key="video", text="فيديو MP4"),
-            ft.DropdownOption(key="audio", text="صوت"),
-        ],
-        bgcolor=PANEL2,
-        border_color=BORDER,
-    )
-
-    quality = ft.Dropdown(
-        label="الجودة",
-        value="720",
-        expand=True,
-        options=[
-            ft.DropdownOption(key=x, text=x + "p")
-            for x in ("360", "480", "720", "1080")
-        ],
-        bgcolor=PANEL2,
-        border_color=BORDER,
-    )
-
-    status = txt("جاهز لاستقبال رابط", 13, MUTED)
-
-    progress = ft.ProgressBar(
-        value=0,
-        color=CYAN,
-        bgcolor=BORDER,
-        height=8,
-    )
-
-    progress_ring = ft.ProgressRing(
-        value=0,
-        width=86,
-        height=86,
-        stroke_width=8,
-        color=CYAN,
-        bgcolor=BORDER,
-    )
-
-    percent_text = txt("0%", 19, WHITE, True)
-
-    details = txt(
-        "ستظهر السرعة والحجم والوقت المتبقي هنا",
-        12,
-        MUTED,
-    )
-
-    history_col = ft.Column(spacing=9)
 
     def refresh():
         page.update()
@@ -146,6 +86,73 @@ def main(page: ft.Page):
         progress.value = fraction
         progress_ring.value = fraction
         percent_text.value = f"{fraction * 100:.0f}%"
+
+    url = ft.TextField(
+        label="رابط الفيديو أو الملف",
+        hint_text="الصق الرابط هنا...",
+        text_align=ft.TextAlign.RIGHT,
+        expand=True,
+        bgcolor=PANEL2,
+        border_color=BORDER,
+        focused_border_color=CYAN,
+        cursor_color=CYAN,
+        text_size=13,
+        dense=True,
+    )
+
+    kind = ft.Dropdown(
+        label="نوع الملف",
+        value="video",
+        expand=True,
+        options=[
+            ft.DropdownOption(key="video", text="فيديو MP4"),
+            ft.DropdownOption(key="audio", text="صوت"),
+        ],
+        bgcolor=PANEL2,
+        border_color=BORDER,
+        dense=True,
+    )
+
+    quality = ft.Dropdown(
+        label="الجودة",
+        value="720",
+        expand=True,
+        options=[
+            ft.DropdownOption(key=x, text=x + "p")
+            for x in ("360", "480", "720", "1080")
+        ],
+        bgcolor=PANEL2,
+        border_color=BORDER,
+        dense=True,
+    )
+
+    status = txt("جاهز لاستقبال رابط", 11, MUTED)
+
+    progress = ft.ProgressBar(
+        value=0,
+        color=CYAN,
+        bgcolor=BORDER,
+        height=6,
+    )
+
+    progress_ring = ft.ProgressRing(
+        value=0,
+        width=64,
+        height=64,
+        stroke_width=6,
+        color=CYAN,
+        bgcolor=BORDER,
+    )
+
+    percent_text = txt("0%", 15, WHITE, True)
+
+    details = txt(
+        "ستظهر السرعة والحجم والوقت المتبقي هنا",
+        10,
+        MUTED,
+    )
+
+    history_col = ft.Column(spacing=6)
 
     def add_history(link, result):
         history.insert(0, (link, result))
@@ -161,21 +168,22 @@ def main(page: ft.Page):
                             ft.Icon(
                                 ft.Icons.DOWNLOAD_DONE,
                                 color=CYAN,
+                                size=19,
                             ),
                             ft.Column(
                                 [
-                                    txt(link_text, 12),
-                                    txt(result_text, 11, MUTED),
+                                    txt(link_text, 11),
+                                    txt(result_text, 10, MUTED),
                                 ],
-                                spacing=3,
+                                spacing=2,
                                 expand=True,
                             ),
                         ],
-                        spacing=10,
+                        spacing=8,
                     ),
-                    padding=9,
+                    padding=8,
                     bgcolor=PANEL2,
-                    border_radius=10,
+                    border_radius=9,
                 )
             )
 
@@ -211,9 +219,9 @@ def main(page: ft.Page):
             eta = data.get("eta")
 
             details.value = (
-                f"{fraction * 100:.1f}%  •  "
-                f"{fmt_size(got)} / {fmt_size(total)}  •  "
-                f"{fmt_size(speed) + '/s' if speed else '--'}  •  "
+                f"{fraction * 100:.1f}% • "
+                f"{fmt_size(got)} / {fmt_size(total)} • "
+                f"{fmt_size(speed) + '/s' if speed else '--'} • "
                 f"المتبقي: {eta if eta is not None else '--'} ث"
             )
 
@@ -226,20 +234,24 @@ def main(page: ft.Page):
 
     def worker(link, media_type, selected_quality, state):
         try:
-            fmt = (
-                "bestaudio/best"
-                if media_type == "audio"
-                else (
-                    f"best[height<={selected_quality}][ext=mp4]/"
-                    f"best[height<={selected_quality}]/best"
-                )
-            )
+            if media_type == "audio":
+                fmt = "bestaudio/best"
+            else:
+                fmt = f"best[height<={selected_quality}]/best"
 
             options = {
                 "format": fmt,
+
+                "extractor_args": {
+                    "youtube": {
+                        "player_client": ["android"]
+                    }
+                },
+
                 "outtmpl": str(
                     folder / "%(title).70s [%(id)s].%(ext)s"
                 ),
+
                 "noplaylist": True,
                 "quiet": True,
                 "no_warnings": True,
@@ -265,6 +277,8 @@ def main(page: ft.Page):
         except Exception as exc:
             set_status(f"تعذر التنزيل: {exc}")
             add_history(link, "تعذر التنزيل")
+            details.value = str(exc)
+            page.update()
 
         finally:
             start.disabled = False
@@ -278,9 +292,7 @@ def main(page: ft.Page):
         link = (url.value or "").strip()
 
         if not link.startswith(("http://", "https://")):
-            set_status(
-                "أدخل رابطًا صحيحًا يبدأ بـ http أو https."
-            )
+            set_status("أدخل رابطًا صحيحًا يبدأ بـ http أو https.")
             return
 
         if active["state"] is not None:
@@ -292,6 +304,7 @@ def main(page: ft.Page):
 
         update_progress(0)
         details.value = "يتم تجهيز الاتصال..."
+
         start.disabled = True
         pause.disabled = False
         resume.disabled = True
@@ -334,8 +347,8 @@ def main(page: ft.Page):
         style=ft.ButtonStyle(
             bgcolor=CYAN,
             color="#06111F",
-            padding=15,
-            shape=ft.RoundedRectangleBorder(radius=11),
+            padding=11,
+            shape=ft.RoundedRectangleBorder(radius=10),
         ),
     )
 
@@ -373,9 +386,9 @@ def main(page: ft.Page):
     )
 
     logo = ft.Container(
-        content=txt("s♡s", 26, GOLD, True),
-        width=76,
-        height=76,
+        content=txt("s♡s", 22, GOLD, True),
+        width=56,
+        height=56,
         alignment=ft.Alignment(0, 0),
         bgcolor="#1A2140",
         border=ft.Border.all(2, GOLD),
@@ -387,17 +400,18 @@ def main(page: ft.Page):
             [
                 ft.Column(
                     [
-                        txt("BAHMED", 25, WHITE, True),
-                        txt("DOWNLOADER", 16, GOLD, True),
-                        txt("Download from Social Media", 11, MUTED),
+                        txt("BAHMED", 21, WHITE, True),
+                        txt("DOWNLOADER", 13, GOLD, True),
+                        txt("Download from Social Media", 9, MUTED),
                     ],
-                    spacing=2,
+                    spacing=1,
                     expand=True,
                 ),
                 logo,
             ],
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-        )
+        ),
+        padding=8,
     )
 
     new_download = card(
@@ -405,17 +419,18 @@ def main(page: ft.Page):
             [
                 ft.Row(
                     [
-                        txt("تنزيل جديد", 19, WHITE, True),
-                        txt("MP4 • MP3", 11, CYAN, True),
+                        txt("تنزيل جديد", 16, WHITE, True),
+                        txt("MP4 • MP3", 10, CYAN, True),
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 ),
                 url,
-                ft.Row([kind, quality], spacing=10),
+                ft.Row([kind, quality], spacing=7),
                 start,
             ],
-            spacing=13,
-        )
+            spacing=7,
+        ),
+        padding=9,
     )
 
     progress_display = ft.Row(
@@ -429,40 +444,41 @@ def main(page: ft.Page):
                             alignment=ft.Alignment(0, 0),
                         ),
                     ],
-                    width=100,
-                    height=100,
+                    width=70,
+                    height=70,
                 ),
                 alignment=ft.Alignment(0, 0),
             ),
             ft.Column(
                 [
-                    txt("نسبة الإنجاز", 13, MUTED),
-                    txt("التنزيل الحالي", 16, WHITE, True),
+                    txt("نسبة الإنجاز", 10, MUTED),
+                    txt("التنزيل الحالي", 13, WHITE, True),
                     status,
                 ],
-                spacing=7,
+                spacing=4,
                 expand=True,
             ),
         ],
-        spacing=15,
+        spacing=8,
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
     )
 
     active_card = card(
         ft.Column(
             [
-                txt("التنزيل النشط", 17, WHITE, True),
+                txt("التنزيل النشط", 14, WHITE, True),
                 progress_display,
                 progress,
                 details,
                 ft.Row(
                     [pause, resume, cancel],
                     wrap=True,
-                    spacing=8,
+                    spacing=5,
                 ),
             ],
-            spacing=13,
-        )
+            spacing=7,
+        ),
+        padding=9,
     )
 
     history_card = card(
@@ -471,7 +487,7 @@ def main(page: ft.Page):
                 txt("آخر التنزيلات", 16, WHITE, True),
                 history_col,
             ],
-            spacing=10,
+            spacing=8,
         )
     )
 
@@ -479,19 +495,19 @@ def main(page: ft.Page):
         [
             new_download,
             active_card,
-            history_card,
         ],
-        spacing=14,
+        spacing=7,
         expand=True,
-        scroll=ft.ScrollMode.AUTO,
+        scroll=None,
     )
 
     def show_section(section):
+        current_section["name"] = section
+
         if section == "الرئيسية":
             content.controls = [
                 new_download,
                 active_card,
-                history_card,
             ]
 
         elif section == "التنزيلات":
@@ -505,15 +521,15 @@ def main(page: ft.Page):
                 card(
                     ft.Column(
                         [
-                            txt("مجلد الملفات", 18, WHITE, True),
-                            txt(str(folder), 12, CYAN),
+                            txt("مجلد الملفات", 17, WHITE, True),
+                            txt(str(folder), 11, CYAN),
                             txt(
                                 "تُحفظ الملفات المكتملة في هذا المجلد.",
-                                12,
+                                11,
                                 MUTED,
                             ),
                         ],
-                        spacing=10,
+                        spacing=8,
                     )
                 )
             ]
@@ -523,38 +539,37 @@ def main(page: ft.Page):
                 card(
                     ft.Column(
                         [
-                            txt("الإعدادات", 18, WHITE, True),
-                            txt("مجلد الحفظ", 12, MUTED),
-                            txt(str(folder), 12, CYAN),
+                            txt("الإعدادات", 17, WHITE, True),
+                            txt("مجلد الحفظ", 11, MUTED),
+                            txt(str(folder), 11, CYAN),
                             txt(
                                 "نزّل فقط الملفات التي تملكها أو لديك إذن بتنزيلها.",
-                                12,
+                                11,
                                 MUTED,
                             ),
                         ],
-                        spacing=10,
+                        spacing=8,
                     )
                 )
             ]
 
         page.update()
 
-    # شريط التنقل السفلي الجديد
     def nav(label, icon):
         return ft.Button(
             content=ft.Column(
                 [
-                    ft.Icon(icon, color=CYAN, size=21),
-                    txt(label, 10, WHITE),
+                    ft.Icon(icon, color=CYAN, size=19),
+                    txt(label, 9, WHITE),
                 ],
-                spacing=3,
+                spacing=2,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             ),
             on_click=lambda e: show_section(label),
             style=ft.ButtonStyle(
                 bgcolor=PANEL2,
                 color=WHITE,
-                padding=8,
+                padding=6,
                 shape=ft.RoundedRectangleBorder(radius=10),
             ),
             expand=True,
@@ -568,43 +583,24 @@ def main(page: ft.Page):
                 nav("الملفات", ft.Icons.FOLDER_ROUNDED),
                 nav("الإعدادات", ft.Icons.SETTINGS_ROUNDED),
             ],
-            spacing=7,
+            spacing=5,
             alignment=ft.MainAxisAlignment.SPACE_AROUND,
         ),
-        padding=8,
+        padding=6,
     )
 
-    footer = ft.Column(
+    main_layout = ft.Column(
         [
-            ft.Row(
-                [
-                    txt("سرعة عالية • جودة ممتازة", 11, MUTED),
-                    txt("s♡s", 13, GOLD, True),
-                ],
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-            ),
-            txt(
-                "نزّل فقط الملفات التي تملكها أو لديك إذن بتنزيلها.",
-                10,
-                MUTED,
-            ),
+            header,
+            content,
+            bottom_nav,
         ],
-        spacing=5,
+        spacing=6,
+        expand=True,
+        horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
     )
 
-    page.add(
-        ft.Column(
-            [
-                header,
-                content,
-                bottom_nav,
-                footer,
-            ],
-            spacing=12,
-            expand=True,
-            scroll=ft.ScrollMode.AUTO,
-        )
-    )
+    page.add(main_layout)
 
 
 ft.run(main)
