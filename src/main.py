@@ -68,15 +68,9 @@ def main(page: ft.Page):
         return ft.Container(
             content=content,
             bgcolor=PANEL,
-            border=ft.border.all(1, BORDER),
+            border=ft.Border.all(1, BORDER),
             border_radius=18,
             padding=padding,
-        )
-
-    def centered(content):
-        return ft.Container(
-            content=content,
-            alignment=ft.Alignment(0, 0),
         )
 
     url = ft.TextField(
@@ -151,7 +145,6 @@ def main(page: ft.Page):
 
     def update_progress(fraction):
         fraction = max(0, min(float(fraction), 1))
-
         progress.value = fraction
         progress_ring.value = fraction
         percent_text.value = f"{fraction * 100:.0f}%"
@@ -287,7 +280,9 @@ def main(page: ft.Page):
         link = (url.value or "").strip()
 
         if not link.startswith(("http://", "https://")):
-            set_status("أدخل رابطًا صحيحًا يبدأ بـ http أو https.")
+            set_status(
+                "أدخل رابطًا صحيحًا يبدأ بـ http أو https."
+            )
             return
 
         if active["state"] is not None:
@@ -386,7 +381,7 @@ def main(page: ft.Page):
         height=76,
         alignment=ft.Alignment(0, 0),
         bgcolor="#1A2140",
-        border=ft.border.all(2, GOLD),
+        border=ft.Border.all(2, GOLD),
         border_radius=50,
     )
 
@@ -428,15 +423,19 @@ def main(page: ft.Page):
 
     progress_display = ft.Row(
         [
-            centered(
-                ft.Stack(
+            ft.Container(
+                content=ft.Stack(
                     [
                         progress_ring,
-                        centered(percent_text),
+                        ft.Container(
+                            content=percent_text,
+                            alignment=ft.Alignment(0, 0),
+                        ),
                     ],
                     width=100,
                     height=100,
-                )
+                ),
+                alignment=ft.Alignment(0, 0),
             ),
             ft.Column(
                 [
