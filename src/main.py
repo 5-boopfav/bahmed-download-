@@ -469,11 +469,12 @@ def main(page: ft.Page):
 
         refresh_queue()
 
+        # تعديل اختيار صيغة الفيديو:
+        # لا نفرض امتداد MP4 على الصيغ المتاحة.
         if job.media_type == "audio":
             selected_format = "bestaudio/best"
         else:
             selected_format = (
-                f"best[height<={job.quality}][ext=mp4]/"
                 f"best[height<={job.quality}]/best"
             )
 
