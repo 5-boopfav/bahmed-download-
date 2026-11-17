@@ -1,30 +1,69 @@
+import asyncio
 import threading
 from pathlib import Path
+from urllib.parse import urlparse
+
 import flet as ft
 import yt_dlp
 
-BG = "#080D1B"
-PANEL = "#111A2E"
-PANEL2 = "#18243D"
-CYAN = "#36D9FF"
-PURPLE = "#8B5CF6"
-GOLD = "#F5C45E"
-WHITE = "#F4F7FF"
-MUTED = "#91A0BA"
-GREEN = "#22C55E"
-ORANGE = "#F59E0B"
-RED = "#EF4444"
-BORDER = "#263653"
+
+THEMES = {
+    "royal": {
+        "name": "الأسود الملكي",
+        "bg": "#090909",
+        "panel": "#171717",
+        "panel2": "#222222",
+        "text": "#F7F3EA",
+        "muted": "#B5AA98",
+        "accent": "#D6B45C",
+        "border": "#51452B",
+        "good": "#36B37E",
+        "warn": "#E6A23C",
+        "bad": "#E45B5B",
+    },
+    "light": {
+        "name": "الأبيض والذهبي",
+        "bg": "#F5F2EA",
+        "panel": "#FFFFFF",
+        "panel2": "#F0EBDD",
+        "text": "#25231F",
+        "muted": "#777064",
+        "accent": "#B58A2A",
+        "border": "#D9C99E",
+        "good": "#23865D",
+        "warn": "#B7791F",
+        "bad": "#C33D3D",
+    },
+    "neon": {
+        "name": "الأزرق النيوني",
+        "bg": "#080D1B",
+        "panel": "#111A2E",
+        "panel2": "#18243D",
+        "text": "#F4F7FF",
+        "muted": "#91A0BA",
+        "accent": "#36D9FF",
+        "border": "#263653",
+        "good": "#22C55E",
+        "warn": "#F59E0B",
+        "bad": "#EF4444",
+    },
+}
 
 
-class DownloadState:
-    def __init__(self):
+class DownloadJob:
+    def __init__(self, link, media_type, quality):
+        self.link = link
+        self.media_type = media_type
+        self.quality = quality
+        self.state = "في الانتظار"
+        self.progress = 0
+        self.message = "في قائمة الانتظار"
+        self.cancelled = threading.Event()
         self.paused = threading.Event()
         self.paused.set()
-        self.cancelled = threading.Event()
 
 
-def fmt_size(value):
+def format_size(value):
     if value is None:
         return "--"
 
@@ -33,17 +72,18 @@ def fmt_size(value):
     for unit in ("B", "KB", "MB", "GB", "TB"):
         if value < 1024:
             return f"{value:.1f} {unit}"
+
         value /= 1024
 
     return f"{value:.1f} PB"
 
 
 def main(page: ft.Page):
+
     page.title = "BAHMED DOWNLOADER"
-    page.bgcolor = BG
-    page.theme_mode = ft.ThemeMode.DARK
-    page.padding = 6
     page.rtl = True
+    page.padding = 0
+    page.theme_mode = ft.ThemeMode.DARK
 
     folder = Path.home() / "Downloads" / "BAHMED"
 
@@ -53,554 +93,1212 @@ def main(page: ft.Page):
         folder = Path.cwd() / "BAHMED_DOWNLOADS"
         folder.mkdir(parents=True, exist_ok=True)
 
-    active = {"state": None}
-    history = []
-    current_section = {"name": "الرئيسية"}
+    settings = {
+        "theme": "royal",
+        "sound": True,
+        "haptic": True,
+    }
 
-    def txt(value, size=14, color=WHITE, bold=False):
+    theme = THEMES["royal"]
+
+    jobs = []
+    history = []
+
+    active_job = {"job": None}
+    worker_lock = threading.Lock()
+
+    current_page = {"name": "الرئيسية"}
+
+    def color(name):
+        return theme[name]
+
+    def update():
+        try:
+            page.update()
+        except Exception:
+            pass
+
+    def show_message(message):
+        status.value = message
+        update()
+
+    def text(value, size=13, color_value=None, bold=False):
         return ft.Text(
-            value,
+            str(value),
             size=size,
-            color=color,
-            weight=ft.FontWeight.BOLD if bold else ft.FontWeight.NORMAL,
+            color=color_value or color("text"),
+            weight=(
+                ft.FontWeight.BOLD
+                if bold
+                else ft.FontWeight.NORMAL
+            ),
         )
 
-    def card(content, padding=10):
+    def make_card(content, padding=10):
         return ft.Container(
             content=content,
-            bgcolor=PANEL,
-            border=ft.Border.all(1, BORDER),
+            bgcolor=color("panel"),
+            border=ft.Border.all(1, color("border")),
             border_radius=15,
             padding=padding,
         )
 
-    def refresh():
-        page.update()
+    def valid_link(value):
+        try:
+            parsed = urlparse(value.strip())
 
-    def set_status(message):
-        status.value = message
-        refresh()
+            return (
+                parsed.scheme in ("http", "https")
+                and bool(parsed.netloc)
+            )
 
-    def update_progress(fraction):
-        fraction = max(0, min(float(fraction), 1))
-        progress.value = fraction
-        progress_ring.value = fraction
-        percent_text.value = f"{fraction * 100:.0f}%"
+        except Exception:
+            return False
 
-    url = ft.TextField(
-        label="رابط الفيديو أو الملف",
+    # ------------------------------
+    # التفاعل والاهتزاز
+    # ------------------------------
+
+    haptics = None
+
+    try:
+        haptics = ft.HapticFeedback()
+        page.services.append(haptics)
+    except Exception:
+        haptics = None
+
+    async def feedback():
+        if not settings["haptic"]:
+            return
+
+        if haptics is not None:
+            try:
+                await haptics.selection_click()
+            except Exception:
+                pass
+
+    def click_feedback():
+        try:
+            page.run_task(feedback)
+        except Exception:
+            pass
+
+    def make_button(
+        label,
+        icon,
+        handler,
+        button_color=None,
+        disabled=False,
+        expand=False,
+    ):
+
+        async def clicked(e):
+            click_feedback()
+            await handler(e)
+
+        return ft.Button(
+            label,
+            icon=icon,
+            on_click=clicked,
+            disabled=disabled,
+            expand=expand,
+            style=ft.ButtonStyle(
+                bgcolor=button_color or color("accent"),
+                color=(
+                    "#111111"
+                    if button_color is None
+                    or button_color == color("accent")
+                    else color("text")
+                ),
+                padding=10,
+                shape=ft.RoundedRectangleBorder(
+                    radius=11
+                ),
+                overlay_color="#55FFFFFF",
+                animation_duration=100,
+            ),
+        )
+
+    # ------------------------------
+    # عناصر الإدخال
+    # ------------------------------
+
+    url_field = ft.TextField(
+        label="رابط الفيديو أو قائمة التشغيل",
         hint_text="الصق الرابط هنا...",
         text_align=ft.TextAlign.RIGHT,
-        expand=True,
-        bgcolor=PANEL2,
-        border_color=BORDER,
-        focused_border_color=CYAN,
-        cursor_color=CYAN,
+        bgcolor=color("panel2"),
+        border_color=color("border"),
+        focused_border_color=color("accent"),
+        cursor_color=color("accent"),
         text_size=13,
         dense=True,
     )
 
-    kind = ft.Dropdown(
+    media_type = ft.Dropdown(
         label="نوع الملف",
         value="video",
-        expand=True,
         options=[
-            ft.DropdownOption(key="video", text="فيديو MP4"),
-            ft.DropdownOption(key="audio", text="صوت"),
+            ft.DropdownOption(
+                key="video",
+                text="فيديو MP4",
+            ),
+            ft.DropdownOption(
+                key="audio",
+                text="صوت",
+            ),
         ],
-        bgcolor=PANEL2,
-        border_color=BORDER,
+        bgcolor=color("panel2"),
+        border_color=color("border"),
         dense=True,
     )
 
     quality = ft.Dropdown(
         label="الجودة",
         value="720",
-        expand=True,
         options=[
-            ft.DropdownOption(key=x, text=x + "p")
-            for x in ("360", "480", "720", "1080")
+            ft.DropdownOption(
+                key=q,
+                text=q + "p",
+            )
+            for q in ("360", "480", "720", "1080")
         ],
-        bgcolor=PANEL2,
-        border_color=BORDER,
+        bgcolor=color("panel2"),
+        border_color=color("border"),
         dense=True,
     )
 
-    status = txt("جاهز لاستقبال رابط", 11, MUTED)
-
-    progress = ft.ProgressBar(
-        value=0,
-        color=CYAN,
-        bgcolor=BORDER,
-        height=6,
+    status = text(
+        "جاهز لاستقبال الروابط",
+        11,
+        color("muted"),
     )
 
-    progress_ring = ft.ProgressRing(
-        value=0,
-        width=64,
-        height=64,
-        stroke_width=6,
-        color=CYAN,
-        bgcolor=BORDER,
+    preview_title = text(
+        "معاينة الفيديو",
+        13,
+        color("text"),
+        True,
     )
 
-    percent_text = txt("0%", 15, WHITE, True)
-
-    details = txt(
-        "ستظهر السرعة والحجم والوقت المتبقي هنا",
+    preview_description = text(
+        "ألصق رابطًا لجلب معلومات المحتوى",
         10,
-        MUTED,
+        color("muted"),
     )
 
-    history_col = ft.Column(spacing=6)
+    preview_loading = ft.ProgressRing(
+        width=20,
+        height=20,
+        visible=False,
+    )
 
-    def add_history(link, result):
-        history.insert(0, (link, result))
-        del history[10:]
+    queue_column = ft.Column(
+        spacing=7,
+        tight=True,
+    )
 
-        history_col.controls.clear()
+    history_column = ft.Column(
+        spacing=7,
+        tight=True,
+    )
 
-        for link_text, result_text in history:
-            history_col.controls.append(
+    # ------------------------------
+    # تحديث قائمة التنزيل
+    # ------------------------------
+
+    def refresh_queue():
+
+        queue_column.controls.clear()
+
+        for index, job in enumerate(jobs):
+
+            link_name = job.link
+
+            if len(link_name) > 45:
+                link_name = link_name[:42] + "..."
+
+            queue_column.controls.append(
+                ft.Container(
+                    content=ft.Column(
+                        [
+                            ft.Row(
+                                [
+                                    text(
+                                        f"{index + 1}. {link_name}",
+                                        10,
+                                        color("text"),
+                                    ),
+                                    text(
+                                        job.state,
+                                        10,
+                                        color("accent"),
+                                        True,
+                                    ),
+                                ],
+                                alignment=(
+                                    ft.MainAxisAlignment
+                                    .SPACE_BETWEEN
+                                ),
+                            ),
+                            ft.ProgressBar(
+                                value=job.progress,
+                                color=color("accent"),
+                                bgcolor=color("border"),
+                                height=5,
+                            ),
+                            text(
+                                job.message,
+                                9,
+                                color("muted"),
+                            ),
+                        ],
+                        spacing=4,
+                    ),
+                    bgcolor=color("panel2"),
+                    border_radius=10,
+                    padding=8,
+                )
+            )
+
+        update()
+
+    def refresh_history():
+
+        history_column.controls.clear()
+
+        for link, result in history[:15]:
+
+            history_column.controls.append(
                 ft.Container(
                     content=ft.Row(
                         [
                             ft.Icon(
                                 ft.Icons.DOWNLOAD_DONE,
-                                color=CYAN,
-                                size=19,
+                                color=color("good"),
+                                size=18,
                             ),
                             ft.Column(
                                 [
-                                    txt(link_text, 11),
-                                    txt(result_text, 10, MUTED),
+                                    text(
+                                        link[:65],
+                                        10,
+                                        color("text"),
+                                    ),
+                                    text(
+                                        result,
+                                        9,
+                                        color("muted"),
+                                    ),
                                 ],
                                 spacing=2,
                                 expand=True,
                             ),
-                        ],
-                        spacing=8,
+                        ]
                     ),
-                    padding=8,
-                    bgcolor=PANEL2,
+                    bgcolor=color("panel2"),
                     border_radius=9,
+                    padding=8,
                 )
             )
 
-        refresh()
+        update()
 
-    def hook(data):
-        state = active["state"]
+    # ------------------------------
+    # معاينة الرابط
+    # ------------------------------
 
-        if state:
-            while not state.paused.wait(timeout=0.25):
-                if state.cancelled.is_set():
-                    raise yt_dlp.utils.DownloadError(
-                        "تم إلغاء التنزيل"
-                    )
+    async def preview_link(e=None):
 
-            if state.cancelled.is_set():
+        link = (url_field.value or "").strip()
+
+        if not valid_link(link):
+            show_message("أدخل رابطًا صحيحًا.")
+            return
+
+        preview_loading.visible = True
+        preview_title.value = "جارٍ جلب معلومات المحتوى..."
+        update()
+
+        def extract():
+
+            options = {
+                "quiet": True,
+                "no_warnings": True,
+                "skip_download": True,
+                "noplaylist": True,
+                "socket_timeout": 15,
+            }
+
+            with yt_dlp.YoutubeDL(options) as ydl:
+                return ydl.extract_info(
+                    link,
+                    download=False,
+                )
+
+        try:
+
+            info = await asyncio.to_thread(extract)
+
+            title = info.get("title") or "تم التعرف على المحتوى"
+
+            duration = info.get("duration")
+
+            preview_title.value = title
+
+            if duration:
+                preview_description.value = (
+                    f"مدة المحتوى: {duration} ثانية"
+                )
+            else:
+                preview_description.value = (
+                    "تم التعرف على الرابط"
+                )
+
+        except Exception as exc:
+
+            preview_title.value = "تعذرت المعاينة"
+
+            preview_description.value = str(exc)[:140]
+
+        finally:
+
+            preview_loading.visible = False
+            update()
+
+    # ------------------------------
+    # إضافة روابط متعددة
+    # ------------------------------
+
+    async def add_downloads(e=None):
+
+        links = [
+            item.strip()
+            for item in (url_field.value or "").splitlines()
+            if item.strip()
+        ]
+
+        if not links:
+            show_message("أضف رابطًا واحدًا على الأقل.")
+            return
+
+        invalid_links = [
+            link for link in links
+            if not valid_link(link)
+        ]
+
+        if invalid_links:
+            show_message("يوجد رابط غير صحيح في القائمة.")
+            return
+
+        for link in links:
+
+            job = DownloadJob(
+                link,
+                media_type.value or "video",
+                quality.value or "720",
+            )
+
+            jobs.append(job)
+
+        url_field.value = ""
+
+        refresh_queue()
+
+        show_message(
+            f"تمت إضافة {len(links)} رابط إلى قائمة التنزيل."
+        )
+
+        start_queue()
+
+    # ------------------------------
+    # تنزيل الملفات
+    # ------------------------------
+
+    def progress_hook(job, data):
+
+        if job.cancelled.is_set():
+            raise yt_dlp.utils.DownloadError(
+                "تم إلغاء التنزيل"
+            )
+
+        while not job.paused.wait(timeout=0.25):
+
+            if job.cancelled.is_set():
                 raise yt_dlp.utils.DownloadError(
                     "تم إلغاء التنزيل"
                 )
 
+        if job.cancelled.is_set():
+            raise yt_dlp.utils.DownloadError(
+                "تم إلغاء التنزيل"
+            )
+
         if data.get("status") == "downloading":
-            got = data.get("downloaded_bytes", 0)
+
+            downloaded = data.get(
+                "downloaded_bytes",
+                0,
+            )
 
             total = (
                 data.get("total_bytes")
                 or data.get("total_bytes_estimate")
             )
 
-            fraction = got / total if total else 0
-            update_progress(fraction)
+            if total:
+                job.progress = min(
+                    1,
+                    downloaded / total,
+                )
 
             speed = data.get("speed")
-            eta = data.get("eta")
 
-            details.value = (
-                f"{fraction * 100:.1f}% • "
-                f"{fmt_size(got)} / {fmt_size(total)} • "
-                f"{fmt_size(speed) + '/s' if speed else '--'} • "
-                f"المتبقي: {eta if eta is not None else '--'} ث"
-            )
+            if speed:
+                job.message = (
+                    f"{format_size(downloaded)} • "
+                    f"{format_size(speed)}/s"
+                )
+            else:
+                job.message = format_size(downloaded)
 
-            page.update()
+            page.run_thread(refresh_queue)
 
         elif data.get("status") == "finished":
-            update_progress(1)
-            details.value = "اكتمل نقل البيانات، جارٍ تجهيز الملف..."
-            page.update()
 
-    def worker(link, media_type, selected_quality, state):
+            job.progress = 1
+
+            job.message = "جارٍ تجهيز الملف..."
+
+            page.run_thread(refresh_queue)
+
+    def download_job(job):
+
+        job.state = "جارٍ التنزيل"
+        job.message = "جارٍ الاتصال..."
+
+        refresh_queue()
+
+        if job.media_type == "audio":
+
+            selected_format = "bestaudio/best"
+
+        else:
+
+            selected_format = (
+                f"best[height<={job.quality}][ext=mp4]/"
+                f"best[height<={job.quality}]/best"
+            )
+
+        options = {
+            "format": selected_format,
+
+            "outtmpl": str(
+                folder / "%(title).70s [%(id)s].%(ext)s"
+            ),
+
+            "noplaylist": False,
+
+            "quiet": True,
+            "no_warnings": True,
+
+            "socket_timeout": 30,
+
+            "continuedl": True,
+            "overwrites": False,
+
+            "progress_hooks": [
+                lambda data: progress_hook(job, data)
+            ],
+        }
+
         try:
-            if media_type == "audio":
-                fmt = "bestaudio/best"
-            else:
-                fmt = f"best[height<={selected_quality}]/best"
-
-            options = {
-                "format": fmt,
-
-                "extractor_args": {
-                    "youtube": {
-                        "player_client": ["android"]
-                    }
-                },
-
-                "outtmpl": str(
-                    folder / "%(title).70s [%(id)s].%(ext)s"
-                ),
-
-                "noplaylist": True,
-                "quiet": True,
-                "no_warnings": True,
-                "socket_timeout": 30,
-                "progress_hooks": [hook],
-                "continuedl": True,
-                "overwrites": False,
-            }
 
             with yt_dlp.YoutubeDL(options) as ydl:
-                ydl.download([link])
+                ydl.download([job.link])
 
-            if state.cancelled.is_set():
-                set_status("تم إلغاء التنزيل.")
-                add_history(link, "أُلغي")
+            if job.cancelled.is_set():
+
+                job.state = "ملغى"
+                job.message = "تم إلغاء المهمة"
+
+                history.insert(
+                    0,
+                    (job.link, "ملغى"),
+                )
+
             else:
-                update_progress(1)
-                set_status("اكتمل التنزيل بنجاح.")
-                details.value = f"مكان الحفظ: {folder}"
-                add_history(link, "اكتمل")
-                page.update()
+
+                job.state = "مكتمل"
+                job.progress = 1
+                job.message = "اكتمل التنزيل"
+
+                history.insert(
+                    0,
+                    (job.link, "اكتمل"),
+                )
 
         except Exception as exc:
-            set_status(f"تعذر التنزيل: {exc}")
-            add_history(link, "تعذر التنزيل")
-            details.value = str(exc)
-            page.update()
+
+            job.state = "فشل"
+
+            job.message = str(exc)[:140]
+
+            history.insert(
+                0,
+                (job.link, "تعذر التنزيل"),
+            )
 
         finally:
-            start.disabled = False
-            pause.disabled = True
-            resume.disabled = True
-            cancel.disabled = True
-            active["state"] = None
-            page.update()
 
-    def start_click(e):
-        link = (url.value or "").strip()
+            refresh_queue()
+            refresh_history()
 
-        if not link.startswith(("http://", "https://")):
-            set_status("أدخل رابطًا صحيحًا يبدأ بـ http أو https.")
-            return
+    def queue_worker():
 
-        if active["state"] is not None:
-            set_status("يوجد تنزيل جارٍ بالفعل.")
-            return
+        with worker_lock:
 
-        state = DownloadState()
-        active["state"] = state
+            while True:
 
-        update_progress(0)
-        details.value = "يتم تجهيز الاتصال..."
+                next_job = next(
+                    (
+                        job for job in jobs
+                        if job.state == "في الانتظار"
+                    ),
+                    None,
+                )
 
-        start.disabled = True
-        pause.disabled = False
-        resume.disabled = True
-        cancel.disabled = False
+                if next_job is None:
+                    break
 
-        set_status("بدأ التنزيل...")
+                active_job["job"] = next_job
 
-        page.run_thread(
-            worker,
-            link,
-            kind.value,
-            quality.value,
-            state,
+                download_job(next_job)
+
+                active_job["job"] = None
+
+        status.value = "انتهت قائمة التنزيل."
+
+        page.run_thread(update)
+
+    def start_queue():
+
+        if active_job["job"] is None:
+
+            page.run_thread(queue_worker)
+
+    # ------------------------------
+    # التحكم في التنزيل
+    # ------------------------------
+
+    async def pause_download(e):
+
+        job = active_job["job"]
+
+        if job:
+
+            job.paused.clear()
+
+            job.state = "متوقف مؤقتًا"
+
+            job.message = "التنزيل متوقف مؤقتًا"
+
+            refresh_queue()
+
+    async def resume_download(e):
+
+        job = active_job["job"]
+
+        if job:
+
+            job.paused.set()
+
+            job.state = "جارٍ التنزيل"
+
+            job.message = "تم استئناف التنزيل"
+
+            refresh_queue()
+
+        else:
+
+            start_queue()
+
+    async def cancel_download(e):
+
+        job = active_job["job"]
+
+        if job:
+
+            job.cancelled.set()
+
+            job.paused.set()
+
+            job.message = "جارٍ الإلغاء..."
+
+            refresh_queue()
+
+    async def clear_finished(e):
+
+        jobs[:] = [
+            job for job in jobs
+            if job.state not in (
+                "مكتمل",
+                "فشل",
+                "ملغى",
+            )
+        ]
+
+        refresh_queue()
+
+    # ------------------------------
+    # الأزرار
+    # ------------------------------
+
+    preview_button = make_button(
+        "معاينة الرابط",
+        ft.Icons.PREVIEW,
+        preview_link,
+        color("panel2"),
+        expand=True,
+    )
+
+    add_button = make_button(
+        "إضافة إلى القائمة",
+        ft.Icons.ADD_TO_QUEUE,
+        add_downloads,
+        expand=True,
+    )
+
+    pause_button = make_button(
+        "إيقاف مؤقت",
+        ft.Icons.PAUSE,
+        pause_download,
+        color("warn"),
+        expand=True,
+    )
+
+    resume_button = make_button(
+        "استئناف",
+        ft.Icons.PLAY_ARROW,
+        resume_download,
+        color("good"),
+        expand=True,
+    )
+
+    cancel_button = make_button(
+        "إلغاء الحالي",
+        ft.Icons.CLOSE,
+        cancel_download,
+        color("bad"),
+        expand=True,
+    )
+
+    # ------------------------------
+    # إعدادات الثيم
+    # ------------------------------
+
+    theme_picker = ft.Dropdown(
+        label="اختر المظهر",
+        value="royal",
+        options=[
+            ft.DropdownOption(
+                key="royal",
+                text="الأسود الملكي",
+            ),
+            ft.DropdownOption(
+                key="light",
+                text="الأبيض والذهبي",
+            ),
+            ft.DropdownOption(
+                key="neon",
+                text="الأزرق النيوني",
+            ),
+        ],
+        bgcolor=color("panel2"),
+        border_color=color("border"),
+        dense=True,
+    )
+
+    sound_switch = ft.Switch(
+        label="أصوات النقر والتنبيه",
+        value=True,
+    )
+
+    haptic_switch = ft.Switch(
+        label="الاهتزاز عند النقر",
+        value=True,
+    )
+
+    async def apply_theme(e):
+
+        nonlocal theme
+
+        settings["theme"] = theme_picker.value
+
+        theme = THEMES[settings["theme"]]
+
+        page.bgcolor = color("bg")
+
+        show_message(
+            "تم تغيير المظهر."
         )
 
-    def pause_click(e):
-        if active["state"]:
-            active["state"].paused.clear()
-            pause.disabled = True
-            resume.disabled = False
-            set_status("التنزيل متوقف مؤقتًا.")
+    async def save_sound_setting(e):
 
-    def resume_click(e):
-        if active["state"]:
-            active["state"].paused.set()
-            pause.disabled = False
-            resume.disabled = True
-            set_status("تم استئناف التنزيل.")
+        settings["sound"] = sound_switch.value
 
-    def cancel_click(e):
-        if active["state"]:
-            active["state"].cancelled.set()
-            active["state"].paused.set()
-            set_status("جارٍ إلغاء التنزيل...")
+        click_feedback()
 
-    start = ft.Button(
-        "بدء التحميل",
-        icon=ft.Icons.DOWNLOAD,
-        on_click=start_click,
-        style=ft.ButtonStyle(
-            bgcolor=CYAN,
-            color="#06111F",
-            padding=11,
-            shape=ft.RoundedRectangleBorder(radius=10),
-        ),
-    )
+    async def save_haptic_setting(e):
 
-    pause = ft.Button(
-        "إيقاف مؤقت",
-        icon=ft.Icons.PAUSE,
-        disabled=True,
-        on_click=pause_click,
-        style=ft.ButtonStyle(
-            bgcolor=ORANGE,
-            color="#101827",
-        ),
-    )
+        settings["haptic"] = haptic_switch.value
 
-    resume = ft.Button(
-        "استئناف",
-        icon=ft.Icons.PLAY_ARROW,
-        disabled=True,
-        on_click=resume_click,
-        style=ft.ButtonStyle(
-            bgcolor=GREEN,
-            color="#07130B",
-        ),
-    )
+        click_feedback()
 
-    cancel = ft.Button(
-        "إلغاء",
-        icon=ft.Icons.CLOSE,
-        disabled=True,
-        on_click=cancel_click,
-        style=ft.ButtonStyle(
-            bgcolor=RED,
-            color=WHITE,
-        ),
-    )
+    sound_switch.on_change = save_sound_setting
 
-    logo = ft.Container(
-        content=txt("s♡s", 22, GOLD, True),
-        width=56,
-        height=56,
-        alignment=ft.Alignment(0, 0),
-        bgcolor="#1A2140",
-        border=ft.Border.all(2, GOLD),
-        border_radius=50,
-    )
+    haptic_switch.on_change = save_haptic_setting
 
-    header = card(
+    # ------------------------------
+    # الواجهة الرئيسية
+    # ------------------------------
+
+    preview_card = make_card(
         ft.Row(
             [
+                preview_loading,
                 ft.Column(
                     [
-                        txt("BAHMED", 21, WHITE, True),
-                        txt("DOWNLOADER", 13, GOLD, True),
-                        txt("Download from Social Media", 9, MUTED),
+                        preview_title,
+                        preview_description,
                     ],
-                    spacing=1,
+                    spacing=3,
                     expand=True,
                 ),
-                logo,
-            ],
-            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            ]
         ),
-        padding=8,
+        9,
     )
 
-    new_download = card(
-        ft.Column(
-            [
-                ft.Row(
-                    [
-                        txt("تنزيل جديد", 16, WHITE, True),
-                        txt("MP4 • MP3", 10, CYAN, True),
-                    ],
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                ),
-                url,
-                ft.Row([kind, quality], spacing=7),
-                start,
-            ],
-            spacing=7,
-        ),
-        padding=9,
-    )
-
-    progress_display = ft.Row(
+    home_view = ft.Column(
         [
-            ft.Container(
-                content=ft.Stack(
+            make_card(
+                ft.Column(
                     [
-                        progress_ring,
-                        ft.Container(
-                            content=percent_text,
-                            alignment=ft.Alignment(0, 0),
+                        text(
+                            "تنزيل جديد",
+                            16,
+                            color("text"),
+                            True,
+                        ),
+
+                        url_field,
+
+                        ft.Row(
+                            [
+                                media_type,
+                                quality,
+                            ],
+                            spacing=7,
+                        ),
+
+                        ft.Row(
+                            [
+                                preview_button,
+                                add_button,
+                            ],
+                            spacing=7,
                         ),
                     ],
-                    width=70,
-                    height=70,
+                    spacing=7,
                 ),
-                alignment=ft.Alignment(0, 0),
+                10,
             ),
-            ft.Column(
-                [
-                    txt("نسبة الإنجاز", 10, MUTED),
-                    txt("التنزيل الحالي", 13, WHITE, True),
-                    status,
-                ],
-                spacing=4,
-                expand=True,
+
+            preview_card,
+
+            make_card(
+                ft.Column(
+                    [
+                        text(
+                            "حالة التنزيل",
+                            14,
+                            color("text"),
+                            True,
+                        ),
+
+                        status,
+
+                        ft.Row(
+                            [
+                                pause_button,
+                                resume_button,
+                                cancel_button,
+                            ],
+                            spacing=5,
+                        ),
+                    ],
+                    spacing=8,
+                ),
+                10,
             ),
         ],
         spacing=8,
-        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        expand=True,
+        tight=True,
     )
 
-    active_card = card(
-        ft.Column(
-            [
-                txt("التنزيل النشط", 14, WHITE, True),
-                progress_display,
-                progress,
-                details,
-                ft.Row(
-                    [pause, resume, cancel],
-                    wrap=True,
-                    spacing=5,
+    # ------------------------------
+    # صفحة قائمة التنزيل
+    # ------------------------------
+
+    queue_view = ft.Column(
+        [
+            make_card(
+                ft.Column(
+                    [
+                        ft.Row(
+                            [
+                                text(
+                                    "قائمة التنزيل",
+                                    16,
+                                    color("text"),
+                                    True,
+                                ),
+
+                                make_button(
+                                    "مسح المكتمل",
+                                    ft.Icons.CLEANING_SERVICES,
+                                    clear_finished,
+                                    color("panel2"),
+                                ),
+                            ],
+                            alignment=(
+                                ft.MainAxisAlignment
+                                .SPACE_BETWEEN
+                            ),
+                        ),
+
+                        queue_column,
+                    ],
+                    spacing=8,
                 ),
-            ],
-            spacing=7,
-        ),
-        padding=9,
+                10,
+            ),
+        ],
+        expand=True,
+        scroll=ft.ScrollMode.AUTO,
     )
 
-    history_card = card(
+    # ------------------------------
+    # صفحة الملفات
+    # ------------------------------
+
+    files_view = make_card(
         ft.Column(
             [
-                txt("آخر التنزيلات", 16, WHITE, True),
-                history_col,
+                text(
+                    "مجلد الملفات",
+                    17,
+                    color("text"),
+                    True,
+                ),
+
+                text(
+                    str(folder),
+                    11,
+                    color("accent"),
+                ),
+
+                text(
+                    "تُحفظ الملفات المكتملة في مجلد BAHMED.",
+                    11,
+                    color("muted"),
+                ),
             ],
             spacing=8,
         )
     )
 
-    content = ft.Column(
-        [
-            new_download,
-            active_card,
-        ],
-        spacing=7,
-        expand=True,
-        scroll=None,
+    # ------------------------------
+    # صفحة الإعدادات
+    # ------------------------------
+
+    settings_view = make_card(
+        ft.Column(
+            [
+                text(
+                    "الإعدادات",
+                    17,
+                    color("text"),
+                    True,
+                ),
+
+                theme_picker,
+
+                make_button(
+                    "تطبيق المظهر",
+                    ft.Icons.PALETTE,
+                    apply_theme,
+                ),
+
+                sound_switch,
+
+                haptic_switch,
+
+                text(
+                    "الصوت يحتاج إضافة ملف صوتي ومكتبة تشغيل.",
+                    10,
+                    color("muted"),
+                ),
+
+                text(
+                    "نزّل فقط المحتوى المسموح بتنزيله.",
+                    10,
+                    color("muted"),
+                ),
+            ],
+            spacing=9,
+        ),
+        12,
     )
 
-    def show_section(section):
-        current_section["name"] = section
+    # ------------------------------
+    # التنقل بين الصفحات
+    # ------------------------------
 
-        if section == "الرئيسية":
-            content.controls = [
-                new_download,
-                active_card,
-            ]
+    content = ft.Column(
+        [home_view],
+        expand=True,
+    )
 
-        elif section == "التنزيلات":
-            content.controls = [
-                active_card,
-                history_card,
-            ]
+    def show_section(name):
 
-        elif section == "الملفات":
-            content.controls = [
-                card(
-                    ft.Column(
-                        [
-                            txt("مجلد الملفات", 17, WHITE, True),
-                            txt(str(folder), 11, CYAN),
-                            txt(
-                                "تُحفظ الملفات المكتملة في هذا المجلد.",
-                                11,
-                                MUTED,
-                            ),
-                        ],
-                        spacing=8,
-                    )
-                )
-            ]
+        current_page["name"] = name
+
+        if name == "الرئيسية":
+
+            content.controls = [home_view]
+
+        elif name == "قائمة التنزيل":
+
+            content.controls = [queue_view]
+
+        elif name == "الملفات":
+
+            content.controls = [files_view]
 
         else:
-            content.controls = [
-                card(
-                    ft.Column(
-                        [
-                            txt("الإعدادات", 17, WHITE, True),
-                            txt("مجلد الحفظ", 11, MUTED),
-                            txt(str(folder), 11, CYAN),
-                            txt(
-                                "نزّل فقط الملفات التي تملكها أو لديك إذن بتنزيلها.",
-                                11,
-                                MUTED,
-                            ),
-                        ],
-                        spacing=8,
-                    )
-                )
-            ]
 
-        page.update()
+            content.controls = [settings_view]
 
-    def nav(label, icon):
+        update()
+
+    def navigation_button(name, icon):
+
+        async def clicked(e):
+
+            click_feedback()
+
+            show_section(name)
+
         return ft.Button(
             content=ft.Column(
                 [
-                    ft.Icon(icon, color=CYAN, size=19),
-                    txt(label, 9, WHITE),
+                    ft.Icon(
+                        icon,
+                        color=color("accent"),
+                        size=19,
+                    ),
+
+                    text(
+                        name,
+                        9,
+                        color("text"),
+                    ),
                 ],
                 spacing=2,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                horizontal_alignment=(
+                    ft.CrossAxisAlignment.CENTER
+                ),
             ),
-            on_click=lambda e: show_section(label),
-            style=ft.ButtonStyle(
-                bgcolor=PANEL2,
-                color=WHITE,
-                padding=6,
-                shape=ft.RoundedRectangleBorder(radius=10),
-            ),
+
+            on_click=clicked,
+
             expand=True,
+
+            style=ft.ButtonStyle(
+                bgcolor=color("panel2"),
+                padding=5,
+                shape=ft.RoundedRectangleBorder(
+                    radius=10
+                ),
+                overlay_color="#55FFFFFF",
+                animation_duration=100,
+            ),
         )
 
-    bottom_nav = card(
+    bottom_navigation = make_card(
         ft.Row(
             [
-                nav("الرئيسية", ft.Icons.HOME_ROUNDED),
-                nav("التنزيلات", ft.Icons.DOWNLOAD_ROUNDED),
-                nav("الملفات", ft.Icons.FOLDER_ROUNDED),
-                nav("الإعدادات", ft.Icons.SETTINGS_ROUNDED),
+                navigation_button(
+                    "الرئيسية",
+                    ft.Icons.HOME_ROUNDED,
+                ),
+
+                navigation_button(
+                    "قائمة التنزيل",
+                    ft.Icons.DOWNLOAD_ROUNDED,
+                ),
+
+                navigation_button(
+                    "الملفات",
+                    ft.Icons.FOLDER_ROUNDED,
+                ),
+
+                navigation_button(
+                    "الإعدادات",
+                    ft.Icons.SETTINGS_ROUNDED,
+                ),
             ],
-            spacing=5,
-            alignment=ft.MainAxisAlignment.SPACE_AROUND,
+            spacing=4,
         ),
-        padding=6,
+        5,
+    )
+
+    # ------------------------------
+    # رأس التطبيق
+    # ------------------------------
+
+    header = make_card(
+        ft.Row(
+            [
+                ft.Column(
+                    [
+                        text(
+                            "BAHMED",
+                            21,
+                            color("text"),
+                            True,
+                        ),
+
+                        text(
+                            "DOWNLOADER",
+                            12,
+                            color("accent"),
+                            True,
+                        ),
+
+                        text(
+                            "Download from Social Media",
+                            9,
+                            color("muted"),
+                        ),
+                    ],
+                    spacing=0,
+                    expand=True,
+                ),
+
+                ft.Container(
+                    content=text(
+                        "B",
+                        25,
+                        color("accent"),
+                        True,
+                    ),
+
+                    width=54,
+                    height=54,
+
+                    alignment=ft.Alignment(0, 0),
+
+                    border=ft.Border.all(
+                        2,
+                        color("accent"),
+                    ),
+
+                    border_radius=50,
+
+                    bgcolor=color("panel2"),
+                ),
+            ],
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+        ),
+        8,
     )
 
     main_layout = ft.Column(
         [
             header,
             content,
-            bottom_nav,
+            bottom_navigation,
         ],
-        spacing=6,
+        spacing=7,
         expand=True,
-        horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
     )
 
-    page.add(main_layout)
+    # ------------------------------
+    # معالجة حجم الشاشة
+    # ------------------------------
+
+    def resize(e=None):
+
+        height = page.height or 700
+
+        compact = height < 700
+
+        header.padding = 6 if compact else 8
+
+        bottom_navigation.padding = (
+            4 if compact else 5
+        )
+
+        content.spacing = (
+            5 if compact else 8
+        )
+
+        update()
+
+    page.on_resize = resize
+
+    # SafeArea لحماية الواجهة من شريط الحالة
+    page.add(
+        ft.SafeArea(
+            content=main_layout,
+            expand=True,
+        )
+    )
+
+    # ------------------------------
+    # فحص الحافظة عند فتح التطبيق
+    # ------------------------------
+
+    async def check_clipboard():
+
+        try:
+
+            copied = await page.get_clipboard()
+
+            if (
+                copied
+                and valid_link(copied)
+                and not url_field.value
+            ):
+
+                url_field.value = copied.strip()
+
+                await preview_link()
+
+        except Exception:
+            pass
+
+    try:
+        page.run_task(check_clipboard)
+    except Exception:
+        pass
+
+    resize()
 
 
-ft.run(main)
+if __name__ == "__main__":
+    ft.run(main)
