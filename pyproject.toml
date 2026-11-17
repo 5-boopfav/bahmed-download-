@@ -1,17 +1,17 @@
 [project]
-name = "flet-downloader"
-version = "0.1.0"
+name = "bahmed-downloader"
+version = "0.2.0"
 description = "BAHMED Downloader"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "flet==1.1.2",
-    "yt-dlp"
+"flet==1.1.2",
+"yt-dlp",
 ]
 
 [tool.flet]
 org = "com.mycompany"
-product = "BAHMED Downloader"
+product = "BAHMED DOWNLOADER"
 company = "BAHMED"
 
 [tool.flet.app]
