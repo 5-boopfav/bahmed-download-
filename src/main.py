@@ -3,9 +3,18 @@ from pathlib import Path
 import flet as ft
 import yt_dlp
 
-BG, PANEL, PANEL2 = "#080D1B", "#111A2E", "#18243D"
-CYAN, PURPLE, WHITE, MUTED = "#36D9FF", "#8B5CF6", "#F4F7FF", "#91A0BA"
-GREEN, ORANGE, RED, BORDER = "#22C55E", "#F59E0B", "#EF4444", "#263653"
+BG = "#080D1B"
+PANEL = "#111A2E"
+PANEL2 = "#18243D"
+CYAN = "#36D9FF"
+PURPLE = "#8B5CF6"
+GOLD = "#F5C45E"
+WHITE = "#F4F7FF"
+MUTED = "#91A0BA"
+GREEN = "#22C55E"
+ORANGE = "#F59E0B"
+RED = "#EF4444"
+BORDER = "#263653"
 
 
 class DownloadState:
@@ -18,11 +27,14 @@ class DownloadState:
 def fmt_size(value):
     if value is None:
         return "--"
+
     value = float(value)
+
     for unit in ("B", "KB", "MB", "GB", "TB"):
         if value < 1024:
             return f"{value:.1f} {unit}"
         value /= 1024
+
     return f"{value:.1f} PB"
 
 
@@ -30,10 +42,11 @@ def main(page: ft.Page):
     page.title = "BAHMED DOWNLOADER"
     page.bgcolor = BG
     page.theme_mode = ft.ThemeMode.DARK
-    page.padding = 16
+    page.padding = 14
     page.rtl = True
 
     folder = Path.home() / "Downloads" / "BAHMED"
+
     try:
         folder.mkdir(parents=True, exist_ok=True)
     except OSError:
@@ -48,16 +61,22 @@ def main(page: ft.Page):
             value,
             size=size,
             color=color,
-            weight=ft.FontWeight.BOLD if bold else ft.FontWeight.NORMAL
+            weight=ft.FontWeight.BOLD if bold else ft.FontWeight.NORMAL,
         )
 
-    def card(content):
+    def card(content, padding=17):
         return ft.Container(
             content=content,
             bgcolor=PANEL,
             border=ft.border.all(1, BORDER),
             border_radius=18,
-            padding=17
+            padding=padding,
+        )
+
+    def centered(content):
+        return ft.Container(
+            content=content,
+            alignment=ft.Alignment(0, 0),
         )
 
     url = ft.TextField(
@@ -68,7 +87,7 @@ def main(page: ft.Page):
         bgcolor=PANEL2,
         border_color=BORDER,
         focused_border_color=CYAN,
-        cursor_color=CYAN
+        cursor_color=CYAN,
     )
 
     kind = ft.Dropdown(
@@ -77,10 +96,10 @@ def main(page: ft.Page):
         expand=True,
         options=[
             ft.DropdownOption(key="video", text="فيديو MP4"),
-            ft.DropdownOption(key="audio", text="صوت")
+            ft.DropdownOption(key="audio", text="صوت"),
         ],
         bgcolor=PANEL2,
-        border_color=BORDER
+        border_color=BORDER,
     )
 
     quality = ft.Dropdown(
@@ -92,27 +111,50 @@ def main(page: ft.Page):
             for x in ("360", "480", "720", "1080")
         ],
         bgcolor=PANEL2,
-        border_color=BORDER
+        border_color=BORDER,
     )
 
     status = txt("جاهز لاستقبال رابط", 13, MUTED)
+
     progress = ft.ProgressBar(
         value=0,
         color=CYAN,
         bgcolor=BORDER,
-        height=7
+        height=8,
     )
+
+    progress_ring = ft.ProgressRing(
+        value=0,
+        width=86,
+        height=86,
+        stroke_width=8,
+        color=CYAN,
+        bgcolor=BORDER,
+    )
+
+    percent_text = txt("0%", 19, WHITE, True)
+
     details = txt(
         "ستظهر السرعة والحجم والوقت المتبقي هنا",
         12,
-        MUTED
+        MUTED,
     )
 
-    history_col = ft.Column(spacing=8)
+    history_col = ft.Column(spacing=9)
+
+    def refresh():
+        page.update()
 
     def set_status(message):
         status.value = message
-        page.update()
+        refresh()
+
+    def update_progress(fraction):
+        fraction = max(0, min(float(fraction), 1))
+
+        progress.value = fraction
+        progress_ring.value = fraction
+        percent_text.value = f"{fraction * 100:.0f}%"
 
     def add_history(link, result):
         history.insert(0, (link, result))
@@ -122,19 +164,31 @@ def main(page: ft.Page):
 
         for link_text, result_text in history:
             history_col.controls.append(
-                ft.Row([
-                    ft.Icon(
-                        ft.Icons.DOWNLOAD_DONE,
-                        color=CYAN
+                ft.Container(
+                    content=ft.Row(
+                        [
+                            ft.Icon(
+                                ft.Icons.DOWNLOAD_DONE,
+                                color=CYAN,
+                            ),
+                            ft.Column(
+                                [
+                                    txt(link_text, 12),
+                                    txt(result_text, 11, MUTED),
+                                ],
+                                spacing=3,
+                                expand=True,
+                            ),
+                        ],
+                        spacing=10,
                     ),
-                    ft.Column([
-                        txt(link_text, 12),
-                        txt(result_text, 11, MUTED)
-                    ], spacing=2, expand=True)
-                ])
+                    padding=9,
+                    bgcolor=PANEL2,
+                    border_radius=10,
+                )
             )
 
-        page.update()
+        refresh()
 
     def hook(data):
         state = active["state"]
@@ -153,27 +207,29 @@ def main(page: ft.Page):
 
         if data.get("status") == "downloading":
             got = data.get("downloaded_bytes", 0)
+
             total = (
                 data.get("total_bytes")
                 or data.get("total_bytes_estimate")
             )
 
-            progress.value = min(got / total, 1) if total else 0
+            fraction = got / total if total else 0
+            update_progress(fraction)
 
             speed = data.get("speed")
             eta = data.get("eta")
 
             details.value = (
-                f"{progress.value*100:.1f}%  •  "
+                f"{fraction * 100:.1f}%  •  "
                 f"{fmt_size(got)} / {fmt_size(total)}  •  "
-                f"{fmt_size(speed)+'/s' if speed else '--'}  •  "
+                f"{fmt_size(speed) + '/s' if speed else '--'}  •  "
                 f"المتبقي: {eta if eta is not None else '--'} ث"
             )
 
             page.update()
 
         elif data.get("status") == "finished":
-            progress.value = 1
+            update_progress(1)
             details.value = "اكتمل نقل البيانات، جارٍ تجهيز الملف..."
             page.update()
 
@@ -182,9 +238,10 @@ def main(page: ft.Page):
             fmt = (
                 "bestaudio/best"
                 if media_type == "audio"
-                else
-                f"best[height<={selected_quality}][ext=mp4]/"
-                f"best[height<={selected_quality}]/best"
+                else (
+                    f"best[height<={selected_quality}][ext=mp4]/"
+                    f"best[height<={selected_quality}]/best"
+                )
             )
 
             options = {
@@ -198,7 +255,7 @@ def main(page: ft.Page):
                 "socket_timeout": 30,
                 "progress_hooks": [hook],
                 "continuedl": True,
-                "overwrites": False
+                "overwrites": False,
             }
 
             with yt_dlp.YoutubeDL(options) as ydl:
@@ -208,6 +265,7 @@ def main(page: ft.Page):
                 set_status("تم إلغاء التنزيل.")
                 add_history(link, "أُلغي")
             else:
+                update_progress(1)
                 set_status("اكتمل التنزيل بنجاح.")
                 details.value = f"مكان الحفظ: {folder}"
                 add_history(link, "اكتمل")
@@ -229,9 +287,7 @@ def main(page: ft.Page):
         link = (url.value or "").strip()
 
         if not link.startswith(("http://", "https://")):
-            set_status(
-                "أدخل رابطًا صحيحًا يبدأ بـ http أو https."
-            )
+            set_status("أدخل رابطًا صحيحًا يبدأ بـ http أو https.")
             return
 
         if active["state"] is not None:
@@ -241,13 +297,13 @@ def main(page: ft.Page):
         state = DownloadState()
         active["state"] = state
 
-        progress.value = 0
+        update_progress(0)
         details.value = "يتم تجهيز الاتصال..."
 
         start.disabled = True
         pause.disabled = False
-        cancel.disabled = False
         resume.disabled = True
+        cancel.disabled = False
 
         set_status("بدأ التنزيل...")
 
@@ -256,7 +312,7 @@ def main(page: ft.Page):
             link,
             kind.value,
             quality.value,
-            state
+            state,
         )
 
     def pause_click(e):
@@ -287,8 +343,8 @@ def main(page: ft.Page):
             bgcolor=CYAN,
             color="#06111F",
             padding=15,
-            shape=ft.RoundedRectangleBorder(radius=11)
-        )
+            shape=ft.RoundedRectangleBorder(radius=11),
+        ),
     )
 
     pause = ft.Button(
@@ -298,8 +354,8 @@ def main(page: ft.Page):
         on_click=pause_click,
         style=ft.ButtonStyle(
             bgcolor=ORANGE,
-            color="#101827"
-        )
+            color="#101827",
+        ),
     )
 
     resume = ft.Button(
@@ -309,8 +365,8 @@ def main(page: ft.Page):
         on_click=resume_click,
         style=ft.ButtonStyle(
             bgcolor=GREEN,
-            color="#07130B"
-        )
+            color="#07130B",
+        ),
     )
 
     cancel = ft.Button(
@@ -320,83 +376,118 @@ def main(page: ft.Page):
         on_click=cancel_click,
         style=ft.ButtonStyle(
             bgcolor=RED,
-            color=WHITE
-        )
+            color=WHITE,
+        ),
+    )
+
+    logo = ft.Container(
+        content=txt("s♡s", 26, GOLD, True),
+        width=76,
+        height=76,
+        alignment=ft.Alignment(0, 0),
+        bgcolor="#1A2140",
+        border=ft.border.all(2, GOLD),
+        border_radius=50,
     )
 
     header = card(
-        ft.Row([
-            ft.Column([
-                txt("بحمد", 34, CYAN, True),
-                txt("BAHMED DOWNLOADER", 13, WHITE, True),
-                txt("Download from Social Media", 11, MUTED)
-            ], spacing=2, expand=True),
-
-            ft.Container(
-                content=ft.Icon(
-                    ft.Icons.DOWNLOAD_ROUNDED,
-                    color=CYAN,
-                    size=30
+        ft.Row(
+            [
+                ft.Column(
+                    [
+                        txt("BAHMED", 25, WHITE, True),
+                        txt("DOWNLOADER", 16, GOLD, True),
+                        txt("Download from Social Media", 11, MUTED),
+                    ],
+                    spacing=2,
+                    expand=True,
                 ),
-                width=58,
-                height=58,
-                alignment=ft.alignment.center,
-                bgcolor="#1A2140",
-                border=ft.border.all(1, PURPLE),
-                border_radius=17
-            )
-        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+                logo,
+            ],
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+        )
     )
 
     new_download = card(
-        ft.Column([
-            ft.Row([
-                txt("تنزيل جديد", 19, WHITE, True),
-                txt("MP4 • MP3", 11, CYAN, True)
-            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+        ft.Column(
+            [
+                ft.Row(
+                    [
+                        txt("تنزيل جديد", 19, WHITE, True),
+                        txt("MP4 • MP3", 11, CYAN, True),
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                ),
+                url,
+                ft.Row([kind, quality], spacing=10),
+                start,
+            ],
+            spacing=13,
+        )
+    )
 
-            url,
-
-            ft.Row([
-                kind,
-                quality
-            ], spacing=10),
-
-            start
-        ], spacing=13)
+    progress_display = ft.Row(
+        [
+            centered(
+                ft.Stack(
+                    [
+                        progress_ring,
+                        centered(percent_text),
+                    ],
+                    width=100,
+                    height=100,
+                )
+            ),
+            ft.Column(
+                [
+                    txt("نسبة الإنجاز", 13, MUTED),
+                    txt("التنزيل الحالي", 16, WHITE, True),
+                    status,
+                ],
+                spacing=7,
+                expand=True,
+            ),
+        ],
+        spacing=15,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
     )
 
     active_card = card(
-        ft.Column([
-            txt("التنزيل النشط", 17, WHITE, True),
-            status,
-            progress,
-            details,
-
-            ft.Row([
-                pause,
-                resume,
-                cancel
-            ], wrap=True, spacing=8)
-        ], spacing=12)
+        ft.Column(
+            [
+                txt("التنزيل النشط", 17, WHITE, True),
+                progress_display,
+                progress,
+                details,
+                ft.Row(
+                    [pause, resume, cancel],
+                    wrap=True,
+                    spacing=8,
+                ),
+            ],
+            spacing=13,
+        )
     )
 
     history_card = card(
-        ft.Column([
-            txt("آخر التنزيلات", 16, WHITE, True),
-            history_col
-        ], spacing=10)
+        ft.Column(
+            [
+                txt("آخر التنزيلات", 16, WHITE, True),
+                history_col,
+            ],
+            spacing=10,
+        )
     )
 
     content = ft.Column(
         [
             new_download,
             active_card,
-            history_card
+            history_card,
         ],
         spacing=14,
         expand=True,
-        scroll=ft.ScrollMode.AUTO
+        scroll=ft.ScrollMode.AUTO,
     )
 
     def show_section(section):
@@ -404,105 +495,129 @@ def main(page: ft.Page):
             content.controls = [
                 new_download,
                 active_card,
-                history_card
+                history_card,
             ]
 
         elif section == "التنزيلات":
             content.controls = [
                 active_card,
-                history_card
+                history_card,
             ]
 
         elif section == "الملفات":
             content.controls = [
-                card(ft.Column([
-                    txt("مجلد الملفات", 18, WHITE, True),
-                    txt(str(folder), 12, CYAN),
-                    txt(
-                        "تُحفظ الملفات المكتملة في هذا المجلد.",
-                        12,
-                        MUTED
+                card(
+                    ft.Column(
+                        [
+                            txt("مجلد الملفات", 18, WHITE, True),
+                            txt(str(folder), 12, CYAN),
+                            txt(
+                                "تُحفظ الملفات المكتملة في هذا المجلد.",
+                                12,
+                                MUTED,
+                            ),
+                        ],
+                        spacing=10,
                     )
-                ], spacing=10))
+                )
             ]
 
         else:
             content.controls = [
-                card(ft.Column([
-                    txt("الإعدادات", 18, WHITE, True),
-                    txt("مجلد الحفظ", 12, MUTED),
-                    txt(str(folder), 12, CYAN),
-                    txt(
-                        "نزّل فقط الملفات التي تملكها أو لديك إذن بتنزيلها.",
-                        12,
-                        MUTED
+                card(
+                    ft.Column(
+                        [
+                            txt("الإعدادات", 18, WHITE, True),
+                            txt("مجلد الحفظ", 12, MUTED),
+                            txt(str(folder), 12, CYAN),
+                            txt(
+                                "نزّل فقط الملفات التي تملكها أو لديك إذن بتنزيلها.",
+                                12,
+                                MUTED,
+                            ),
+                        ],
+                        spacing=10,
                     )
-                ], spacing=10))
+                )
             ]
 
         page.update()
 
     def nav(label, icon):
         return ft.Button(
-            content=ft.Row([
-                ft.Icon(icon, color=CYAN),
-                txt(label, 13)
-            ], spacing=8),
-
+            content=ft.Row(
+                [
+                    ft.Icon(icon, color=CYAN),
+                    txt(label, 13),
+                ],
+                spacing=8,
+            ),
             on_click=lambda e: show_section(label),
-
             style=ft.ButtonStyle(
                 bgcolor=PANEL2,
                 color=WHITE,
                 padding=11,
-                shape=ft.RoundedRectangleBorder(radius=10)
-            )
+                shape=ft.RoundedRectangleBorder(radius=10),
+            ),
         )
 
     sidebar = card(
-        ft.Column([
-            txt("BAHMED", 18, CYAN, True),
-            txt("مساحة التحميل", 11, MUTED),
-
-            nav("الرئيسية", ft.Icons.HOME_ROUNDED),
-            nav("التنزيلات", ft.Icons.DOWNLOAD_ROUNDED),
-            nav("الملفات", ft.Icons.FOLDER_ROUNDED),
-            nav("الإعدادات", ft.Icons.SETTINGS_ROUNDED),
-
-            txt("تحميل أسهل وأسرع", 11, MUTED)
-        ], spacing=10)
+        ft.Column(
+            [
+                txt("s♡s", 25, GOLD, True),
+                txt("BAHMED", 17, WHITE, True),
+                txt("مساحة التحميل", 11, MUTED),
+                nav("الرئيسية", ft.Icons.HOME_ROUNDED),
+                nav("التنزيلات", ft.Icons.DOWNLOAD_ROUNDED),
+                nav("الملفات", ft.Icons.FOLDER_ROUNDED),
+                nav("الإعدادات", ft.Icons.SETTINGS_ROUNDED),
+                txt("تحميل أسهل وأسرع", 11, MUTED),
+            ],
+            spacing=10,
+        )
     )
 
-    page.add(
-        ft.Column([
-            header,
-
-            ft.Row([
-                sidebar,
-                ft.Container(
-                    content=content,
-                    expand=True
-                )
-            ],
-                spacing=14,
-                expand=True,
-                vertical_alignment=ft.CrossAxisAlignment.START
+    footer = ft.Column(
+        [
+            ft.Row(
+                [
+                    txt("سرعة عالية • جودة ممتازة", 11, MUTED),
+                    txt("s♡s", 13, GOLD, True),
+                ],
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             ),
-
-            ft.Row([
-                txt("سرعة عالية • جودة ممتازة", 11, MUTED),
-                txt("BAHMED", 11, CYAN, True)
-            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-
             txt(
                 "نزّل فقط الملفات التي تملكها أو لديك إذن بتنزيلها.",
                 10,
-                MUTED
-            )
+                MUTED,
+            ),
         ],
+        spacing=5,
+    )
+
+    page.add(
+        ft.Column(
+            [
+                header,
+                ft.ResponsiveRow(
+                    [
+                        ft.Container(
+                            content=sidebar,
+                            col={"xs": 12, "md": 3},
+                        ),
+                        ft.Container(
+                            content=content,
+                            col={"xs": 12, "md": 9},
+                        ),
+                    ],
+                    spacing=12,
+                    run_spacing=12,
+                ),
+                footer,
+            ],
             spacing=14,
             expand=True,
-            scroll=ft.ScrollMode.AUTO
+            scroll=ft.ScrollMode.AUTO,
         )
     )
 
