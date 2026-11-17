@@ -33,9 +33,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install flet==1.1.2
 
-      - name: Build Android APK with detailed logs
+      - name: Build Android APK
         run: |
-          flet build apk --yes --verbose --project "VideoDownloader" --description "Social Media Downloader" --arch arm64-v8a armeabi-v7a
+          flet build apk --yes --verbose --project "VideoDownloader" --description "Social Media Downloader"
 
       - name: Upload APK
         if: success()
